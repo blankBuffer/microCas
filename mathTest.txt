@@ -1,0 +1,9 @@
+math questions to determine stability of program.
+
+
+x+x                             -> 2*x
+(x*y+y*x*z)*a                   -> x*y*a*(1+z)
+solve(x^3-3*x=0,x)              -> x=[0,sqrt(3),-sqrt(3)]
+x/y+z/w                         -> (x*w+z*y)/(y*w)
+d(x^n.)                         -> n.*x^(n.-1)*d(x)
+ln(x)+ln(y)/2                   -> ln(x*sqrt(y))
