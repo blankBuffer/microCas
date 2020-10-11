@@ -239,7 +239,7 @@ namespace microCas{
 			printf("\n");
 		}
 	};
-	const char SUM = 0,PROD = 1,POW = 2,NUM = 3,VAR = 4,LOG = 5,DERI = 6,EQU = 7,ABS = 8,LIST = 9,SOLVE = 10,LIMIT = 11,SUBST = 12;//expr types
+	const char SUM = 0,PROD = 1,POW = 2,NUM = 3,VAR = 4,LOG = 5,DERI = 6,EQU = 7,ABS = 8,LIST = 9,SOLVE = 10,LIMIT = 11,SUBST = 12,INTEG = 13,SIN = 14,COS = 15;//expr types
 	const char MIDDLE = 0,LEFT = 1,RIGHT = 2,INDET = 3;//direction
 	//WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"Expr"W
 	struct Expr{//meant to be used on heap
@@ -337,7 +337,19 @@ namespace microCas{
 				return;
 			}
 			if(direction != MIDDLE) printf("(");
-			if(exprType == SOLVE){
+			if(exprType == INTEG){
+				printf("integral(");
+				contExpr[0]->print();
+				printf(")");
+			}else if(exprType == COS){
+				printf("cos(");
+				contExpr[0]->print();
+				printf(")");
+			}else if(exprType == SIN){
+				printf("sin(");
+				contExpr[0]->print();
+				printf(")");
+			}else if(exprType == SOLVE){
 				printf("solve(");
 				contExpr[0]->print();
 				printf(",");
@@ -688,6 +700,9 @@ namespace microCas{
 		void absSimp();
 		void listSimp();
 		void equSimp();
+		void sinSimp();
+		void cosSimp();
+		void integSimp();
 		//substitution
 		void replace(Expr* old,Expr *repl){
 			if(contains(old)){
@@ -741,6 +756,15 @@ namespace microCas{
 	Expr *eC(){
 		Num v(EV);
 		return new Expr(&v);
+	}
+	Expr *integC(Expr *expr){
+		return new Expr(INTEG,expr);
+	}
+	Expr *sinC(Expr *expr){
+		return new Expr(SIN,expr);
+	}
+	Expr *cosC(Expr *expr){
+		return new Expr(COS,expr);
 	}
 	Expr *primeFactor(long int num){
 		Expr *pr = new Expr(PROD);
@@ -1782,10 +1806,11 @@ namespace microCas{
 				}
 			}
 			
+			
 			{//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs 
 				Expr *lg = nullptr;
-				
 				for(int i = 0;i < numOfContExpr;i++){
+					
 					if(contExpr[i]->exprType == LOG){
 						if(!lg) lg = new Expr(LOG,new Expr(PROD));
 						lg->contExpr[0]->addElement(contExpr[i]->contExpr[0]);
@@ -1793,14 +1818,17 @@ namespace microCas{
 						removeElement(i);
 						i--;
 					}else if(contExpr[i]->exprType == PROD){
+						
 						Expr *pr = contExpr[i];
 						int indexOfLog = -1;
+						int count = 0;
 						for(int j = 0;j<pr->numOfContExpr;j++){
 							if(pr->contExpr[j]->exprType == LOG){
-								indexOfLog = i;
+								indexOfLog = j;
+								count++;
 							}
 						}
-						if(indexOfLog != -1){
+						if(indexOfLog != -1 && count == 1){
 							contExpr[i]=nullptr;
 							removeElement(i);
 							i--;
@@ -1810,6 +1838,7 @@ namespace microCas{
 							Expr *nwpw = powC(nwbs,pr);
 							if(!lg) lg = new Expr(LOG,new Expr(PROD));
 							lg->contExpr[0]->addElement(nwpw);
+							
 						}
 					}
 				
@@ -2423,6 +2452,10 @@ namespace microCas{
 				return;
 			}
 			
+			if(contExpr[0]->exprType != EQU){
+				contExpr[0] = equC(contExpr[0],numC(0L));
+			}
+			
 			Expr *eq = contExpr[0];
 			Expr *v = contExpr[1];
 			
@@ -2432,15 +2465,17 @@ namespace microCas{
 				eq->contExpr[1] = temp;
 			}
 			
-			if( !(eq->contExpr[1]->exprType == NUM && eq->contExpr[1]->value.equalsI(0L)) ){
+			if( eq->contExpr[1]->contains(v) ){
 				eq->contExpr[0] = sumC(eq->contExpr[0],prodC(eq->contExpr[1],numC(-1L)));
 				eq->contExpr[1] = numC(0L);
 				eq->contExpr[0]->simplify();
 			}
 			
 			while(true){
+				
 				bool changed = false;
 				eq->contExpr[0]->factor();
+				
 				if(eq->contExpr[0]->exprType == SUM){
 					Expr *sm = eq->contExpr[0];
 					Expr *nvarSm = new Expr(SUM);
@@ -2462,67 +2497,9 @@ namespace microCas{
 					}
 				}else if(eq->contExpr[0]->exprType == PROD){//isolate based on product
 					Expr *pr = eq->contExpr[0];
-					//quadratic
-					if(pr->numOfContExpr == 2){
-						Expr *theSum = nullptr;
-						bool foundVar = false;
-						for(int i = 0; i < 2;i++){
-							if(pr->contExpr[i]->equalStruct(v)) foundVar = true;
-							else if(pr->contExpr[i]->exprType == SUM){
-								theSum  = pr->contExpr[i];
-							}
-						}
-						if(foundVar && theSum){
-							if(theSum->numOfContExpr == 2){
-								Expr *a = nullptr,*b = nullptr;
-								for(int i = 0;i < 2;i++){
-									if(!theSum->contExpr[i]->contains(v)){
-										b = theSum->contExpr[i];
-									}else{
-										a = theSum->contExpr[i];
-									}
-								}
-								if(a && b){
-									if(a->exprType == PROD){
-										Expr *pr = a;
-										int count = 0;
-										for(int i = 0;i < pr->numOfContExpr;i++){
-											if(pr->contExpr[i]->equalStruct(v)){
-												count++;
-											}
-										}
-										if(count != 1) a = nullptr;
-									}else if(!a->equalStruct(v)){
-										a = nullptr;
-									}
-									
-									if(a && b){
-										b = b->copy();
-										if(a->equalStruct(v)){
-											delete eq->contExpr[0];
-											a = numC(1);
-										}else{
-											Expr *pr = a->copy();
-											delete eq->contExpr[0];
-											for(int i = 0;i < pr->numOfContExpr;i++){
-												if(pr->contExpr[i]->equalStruct(v)){
-													pr->removeElement(i);
-													pr->simplify();
-													a = pr;
-													break;
-												}
-											}
-										}
-										changed = true;
-										eq->contExpr[0] = prodC(a, sumC(powC( sumC(v->copy(),prodC(b,invC(prodC(numC(2L),a->copy()))) ) ,numC(2L)) ,prodC(numC(-1L), powC( prodC(b->copy(),invC(prodC(numC(2L),a->copy()))) ,numC(2L)) ) ) );
-									}
-								}
-							}
-							
-						}
-					}
 					
-					if(!changed){
+					
+					{
 						Expr *nvarPr = new Expr(PROD);
 						for(int i = 0;i < pr->numOfContExpr; i++){
 							if(!pr->contExpr[i]->contains(v)){
@@ -2553,6 +2530,69 @@ namespace microCas{
 						eq->simple = false;
 						simplify();
 						return;
+					}
+					//quadratic
+					if(!changed){//f(x)*(a*f(x)+b)=c -> a*((f(x)+b/2/a)^2-(b/2/a)^2)=c
+						if(pr->numOfContExpr == 2){
+							//find sum && other
+							Expr *otherPart = nullptr,*sumPart = nullptr;
+							for(int k = 0;k<2;k++){
+								if(pr->contExpr[k]->exprType == SUM) sumPart = pr->contExpr[k];
+								else otherPart = pr->contExpr[k];
+							}
+							if(sumPart && otherPart){
+								//find f(x) in sum
+								int indexOfFX = -1;
+								for(int k = 0;k<sumPart->numOfContExpr;k++){
+									if(sumPart->contExpr[k]->contains(v)){
+										indexOfFX = k;
+										break;
+									}
+								}
+								Expr *a = nullptr;
+								if(sumPart->contExpr[indexOfFX]->exprType == PROD){
+									Expr *FXpr = sumPart->contExpr[indexOfFX];
+									
+									for(int k = 0;k<FXpr->numOfContExpr;k++){
+										if(FXpr->contExpr[k]->equalStruct(otherPart)){
+											a = new Expr(PROD);
+											for(int j = 0;j<FXpr->numOfContExpr;j++){
+												if(j!=k){
+													a->addElement(FXpr->contExpr[j]->copy());
+												}
+											}
+											break;
+										}
+									}
+								}else if(sumPart->contExpr[indexOfFX]->equalStruct(otherPart)){
+									a = numC(1L);
+								}
+								
+								if(a){
+									sumPart->removeElement(indexOfFX);
+									
+									Expr *bO2a = new Expr(PROD);
+									bO2a->addElement(sumPart);
+									bO2a->addElement(invC(numC(2L)));
+									bO2a->addElement(invC(a));
+									Expr *nbO2aSq = new Expr(PROD);
+									nbO2aSq->addElement(powC(sumPart->copy(),numC(2L)));
+									nbO2aSq->addElement(invC(numC(-4L)));
+									nbO2aSq->addElement(powC(a->copy(),numC(-2L)));
+									
+									
+									Expr *nwSm = prodC(sumC(powC(sumC(otherPart,bO2a),numC(2L)), nbO2aSq  ),a->copy());
+									nwSm->simplify();
+									pr->nullify();
+									delete pr;
+									eq->contExpr[0] = nwSm;
+									changed = true;
+								}
+								
+								
+							}
+							
+						}
 					}
 					
 					if(changed) eq->simplify();
@@ -2616,7 +2656,10 @@ namespace microCas{
 					becomeInternal(eq);
 					return;
 				}
-				if(!changed) break;
+				if(!changed){
+					printf("-unable to isolate variable\n");
+					break;
+				}	
 			}
 		}
 	}
@@ -2788,13 +2831,41 @@ namespace microCas{
 			
 		}
 	}
-	
+	void Expr::sinSimp(){
+		if(exprType == SIN){
+			if(contExpr[0]->exprType == NUM && contExpr[0]->value.equalsI(0L)){//sin(0) -> 0
+				clearElements();
+				exprType = NUM;
+				value.setValueI(0L);
+				return;
+			}
+		
+		}
+	}
+	void Expr::cosSimp(){
+		if(exprType == COS){
+			if(contExpr[0]->exprType == NUM && contExpr[0]->value.equalsI(0L)){//cos(0) -> 1
+				clearElements();
+				exprType = NUM;
+				value.setValueI(1L);
+				return;
+			}
+		
+		}
+	}
+	void Expr::integSimp(){
+		if(exprType == INTEG){
+		
+		
+		}
+	}
 	//WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"simplify"W
 	void Expr::simplify(){
 		simplify(true);
 	}
 	
 	void Expr::simplify(bool addFractions){
+		//println();
 		if(exprType == SUBST){
 			if(contExpr[1]->exprType == EQU){
 				replace(contExpr[1]->contExpr[0],contExpr[1]->contExpr[1]);
@@ -2825,6 +2896,9 @@ namespace microCas{
 		else if(exprType == ABS) absSimp();
 		else if(exprType == LIST) listSimp();
 		else if(exprType == EQU) equSimp();
+		else if(exprType == SIN) sinSimp();
+		else if(exprType == COS) cosSimp();
+		else if(exprType == INTEG) integSimp();
 		simple = true;
 	}
 	//RPN scanner
@@ -2849,6 +2923,7 @@ namespace microCas{
 	}
 	
 	Expr* rpnCas(){
+		height = 0;
 		printf("Max variable name length: %d\n",maxNameLength-1);
 		printf("RPN Calculator\nType 'h' for help and 'q' to quit\n");
 		printf("Max elements in stack: %d\n",STACK_MAX);
@@ -2894,6 +2969,9 @@ namespace microCas{
 				printf("	4 : add negative infinity to stack\n");
 				printf("	5 : add infinity to stack\n");
 				printf("	t : substitute, note that the substitution function is always done first\n");
+				printf("	S : sine of last element on stack\n");
+				printf("	C : cosine of last element on stack\n");
+				printf("	I : integrate last element on stack\n");
 			}
 			else if(op == 's'){
 				printStack();
@@ -2940,9 +3018,11 @@ namespace microCas{
 				}
 			}
 			else if(op == 'q'){
-				for(int i = 0;i<height-1;i++) delete stack[i];
-				if(height == 0) stack[0] = numC(0L);
-				height++;
+				for(int i = 1;i<height;i++) delete stack[i];
+				if(height == 0){
+					stack[0] = numC(0L);
+					height++;
+				}
 				if(objCount != 1 && ERRORS) printf("memory leak detected\n");
 				printf("done\n");
 				return stack[height-1];
@@ -3116,13 +3196,24 @@ namespace microCas{
 					stack[height-2] = new Expr(SUBST,stack[height-2],stack[height-1]);
 					height--;
 				}
+			}else if(op == 'S'){
+				if(height < 1) printf("-need more elements\n");
+				else stack[height-1] = sinC(stack[height-1]);
+			}else if(op == 'C'){
+				if(height < 1) printf("-need more elements\n");
+				else stack[height-1] = cosC(stack[height-1]);
+			}else if(op == 'I'){
+				if(height < 1) printf("-need more elements\n");
+				else stack[height-1] = integC(stack[height-1]);
 			}
+			
 		}
 		
 	}
 }
 
 namespace simpleTools{
+	int iter = 64;
 	struct List{
 		int n = 0;
 		double *e;
@@ -3152,7 +3243,6 @@ namespace simpleTools{
 			return sum;
 		}
 		double bisection(double left,double right){
-			int iter = 64;
 			bool increases = out(left) < 0.0;
 			for(int i = 0;i<iter;i++){
 				double midPoint = (left+right)/2.0;
@@ -3176,36 +3266,43 @@ namespace simpleTools{
 				derSol.n = derv.c.n-1;
 				derSol.e = new double[derSol.n];
 				derv.solve(&derSol);
-				//
+				
 				int solutionCount = 0;
-				//left and rightMost Solutions
-				if(out(derSol.e[0]) < 0.0 == (((c.n-1)%2 == 0) == c.e[c.n-1]>0)){//if left solution exists	
-					double step = 1;
-					double leftBound = derSol.e[0]-1;
-					while((out(leftBound) < 0.0) == (out(derSol.e[0]) < 0.0)){//finding crossing point
-						step*=2;
-						leftBound-=step;
-					}
-					res->e[solutionCount] = bisection(leftBound,derSol.e[0]);
+				//if derivative Solutions count == 0 use newtons method. Example 1/3*x^3+x+2 is special case
+				if(derSol.n == 0){
+					double guess = 1.0;
+					for(int i = 0;i<iter;i++) guess = guess-out(guess)/derv.out(guess);
+					res->e[solutionCount] = guess;
 					solutionCount++;
-				}
-				for(int i = 0; i < derSol.n-1;i++){
-					if(( out(derSol.e[i]) < 0.0 ) != ( out(derSol.e[i+1]) < 0.0 )){
-						res->e[solutionCount] = bisection(derSol.e[i],derSol.e[i+1]);
+				}else{
+					//left and rightMost Solutions
+					if(out(derSol.e[0]) < 0.0 == (((c.n-1)%2 == 0) == c.e[c.n-1]>0)){//if left solution exists	
+						double step = 1;
+						double leftBound = derSol.e[0]-1;
+						while((out(leftBound) < 0.0) == (out(derSol.e[0]) < 0.0)){//finding crossing point
+							step*=2;
+							leftBound-=step;
+						}
+						res->e[solutionCount] = bisection(leftBound,derSol.e[0]);
+						solutionCount++;
+					}
+					for(int i = 0; i < derSol.n-1;i++){//middle solutions
+						if(( out(derSol.e[i]) < 0.0 ) != ( out(derSol.e[i+1]) < 0.0 )){
+							res->e[solutionCount] = bisection(derSol.e[i],derSol.e[i+1]);
+							solutionCount++;
+						}
+					}
+					if(out(derSol.e[derSol.n-1]) < 0.0 == (c.e[c.n-1]>0)){//if right solution exists
+						double step = 1;
+						double rightBound = derSol.e[derSol.n-1]+1;
+						while((out(rightBound) < 0.0) == (out(derSol.e[derSol.n-1])< 0.0)){//finding crossing point
+							step*=2;
+							rightBound+=step;
+						}
+						res->e[solutionCount] = bisection(derSol.e[derSol.n-1],rightBound);
 						solutionCount++;
 					}
 				}
-				if(out(derSol.e[derSol.n-1]) < 0.0 == (c.e[c.n-1]>0)){//if right solution exists
-					double step = 1;
-					double rightBound = derSol.e[derSol.n-1]+1;
-					while((out(rightBound) < 0.0) == (out(derSol.e[derSol.n-1])< 0.0)){//finding crossing point
-						step*=2;
-						rightBound+=step;
-					}
-					res->e[solutionCount] = bisection(derSol.e[derSol.n-1],rightBound);
-					solutionCount++;
-				}
-				//simple solutions
 				if(solutionCount != res->n){
 					double *newList = new double[solutionCount];
 					for(int i = 0;i<solutionCount;i++) newList[i] = res->e[i];
