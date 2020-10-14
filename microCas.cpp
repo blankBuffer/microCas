@@ -585,7 +585,7 @@ namespace microCas{
 				return value.equals(&other->value);
 			}else if(exprType == POW ||exprType == SOLVE){
 				return contExpr[0]->equalStruct(other->contExpr[0]) && contExpr[1]->equalStruct(other->contExpr[1]);
-			}else if(exprType == LOG || exprType == ABS || exprType == DERI){
+			}else if(exprType == LOG || exprType == ABS || exprType == DERI || exprType == SIN || exprType == COS || exprType == INTEG){
 				return contExpr[0]->equalStruct(other->contExpr[0]);
 			}else if(exprType == SUM || exprType == PROD || exprType == LIST || exprType == EQU){
 				if(numOfContExpr != other->numOfContExpr) return false;
@@ -755,6 +755,10 @@ namespace microCas{
 	}
 	Expr *eC(){
 		Num v(EV);
+		return new Expr(&v);
+	}
+	Expr *piC(){
+		Num v(PIV);
 		return new Expr(&v);
 	}
 	Expr *integC(Expr *expr){
@@ -2833,21 +2837,204 @@ namespace microCas{
 	}
 	void Expr::sinSimp(){
 		if(exprType == SIN){
-			if(contExpr[0]->exprType == NUM && contExpr[0]->value.equalsI(0L)){//sin(0) -> 0
+			contExpr[0]->factor();
+			if(contExpr[0]->exprType == PROD){//sin(-x)-> -sin(x)
+				Expr *pr = contExpr[0];
+				bool sig = false;
+				for(int i = 0;i < pr->numOfContExpr;i++){
+					if(pr->contExpr[i]->exprType == NUM){
+						if(pr->contExpr[i]->value.neg()){
+							pr->contExpr[i]->value.absN();
+							sig = !sig;
+							pr->simple = false;
+						}
+					}else if(pr->contExpr[i]->exprType == POW){
+						Expr *pw = pr->contExpr[i];
+						if(pw->expoIsMinusOne() && pw->getBase()->exprType == NUM){
+							if(pw->getBase()->value.neg()){
+								pw->getBase()->value.absN();
+								sig = !sig;
+								pr->simple = false;
+							}
+						}
+					}
+				}
+				if(sig){
+					Expr *repl = prodC(numC(-1L),copy());
+					clearElements();
+					become(repl);
+					simplify();
+					return;
+				}
+			}
+			if(contExpr[0]->exprType == PROD && constant()){//unit circle
+				Expr *pr = contExpr[0];
+				//
+				bool foundPi = false;
+				long int num = 1,den = 1;
+				bool foundOther = false;
+				for(int i = 0;i<pr->numOfContExpr;i++){
+					bool integer = pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == INT;
+					bool inverseInt = false;
+					if(pr->contExpr[i]->exprType == POW){
+						if(pr->contExpr[i]->expoIsMinusOne() && pr->contExpr[i]->getBase()->exprType == NUM && pr->contExpr[i]->getBase()->value.rep == INT){
+							inverseInt = true;
+						}
+					}
+					bool isPi = pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == PIV;
+					if(integer){
+						num = pr->contExpr[i]->value.valueI;
+					}else if(inverseInt){
+						den = pr->contExpr[i]->getBase()->value.valueI;
+					}else if(isPi){
+						foundPi = true;
+					}else{
+						foundOther = true;
+					}
+					
+				}
+				if(foundPi && !foundOther){
+					bool neg = false;
+					if(den < 0){
+						den = -den;
+						neg = !neg;
+					}
+					if(num < 0){
+						num = -num;
+						neg = !neg;
+					}
+					num = num%(den*2);
+					if(num > den){
+						num = num%den;
+						neg = !neg;
+					}
+					if(num>den/2){
+						num = den-num;
+					}
+					if(den == 3){//sin(pi/3) -> sqrt(3)/2
+						clearElements();
+						if(neg) become(prodC(powC(numC(3L),invC(numC(2L))),invC(numC(-2L))));
+						else become(prodC(powC(numC(3L),invC(numC(2L))),invC(numC(2L))));
+						return;
+					}else if(den == 4){//sin(pi/4) -> sqrt(2)/2
+						clearElements();
+						if(neg) become(prodC(powC(numC(2L),invC(numC(2L))),invC(numC(-2L))));
+						else become(prodC(powC(numC(2L),invC(numC(2L))),invC(numC(2L))));
+						return;
+					}
+					else if(den == 6){//sin(pi/6) -> 1/2
+						clearElements();
+						if(neg) become(invC(numC(-2L)));
+						else become(invC(numC(2L)));
+						return;
+					}else if(den == 2){
+						clearElements();
+						exprType = NUM;
+						if(neg) value.setValueI(-1L);
+						else value.setValueI(1L);
+						return;
+					}else{
+						contExpr[0]->clearElements();
+						contExpr[0]->addElement(numC(num));
+						contExpr[0]->addElement(piC());
+						contExpr[0]->addElement(invC(numC(den)));
+						contExpr[0]->simplify();
+						if(neg){
+							Expr *repl = prodC(numC(-1L),copy());
+							clearElements();
+							become(repl);
+							return;
+						}
+					}
+					
+				}
+			}
+			if(contExpr[0]->exprType == NUM && (contExpr[0]->value.equalsI(0L) || contExpr[0]->value.rep == PIV)){//sin(0) -> 0
 				clearElements();
 				exprType = NUM;
 				value.setValueI(0L);
 				return;
 			}
-		
+			
 		}
 	}
 	void Expr::cosSimp(){
 		if(exprType == COS){
+		
+			if(contExpr[0]->exprType == ABS){//cos(|x|) -> cos(x)
+				contExpr[0]->becomeInternal(contExpr[0]->contExpr[0]);
+			}
+			
+			contExpr[0]->factor();
+			
+			if(contExpr[0]->exprType == PROD){//cos(-x)-> -cos(x)
+				Expr *pr = contExpr[0];
+				for(int i = 0;i < pr->numOfContExpr;i++){
+					if(pr->contExpr[i]->exprType == NUM){
+						if(pr->contExpr[i]->value.neg()){
+							pr->contExpr[i]->value.absN();
+						}
+					}else if(pr->contExpr[i]->exprType == POW){
+						Expr *pw = pr->contExpr[i];
+						if(pw->expoIsMinusOne() && pw->getBase()->exprType == NUM){
+							if(pw->getBase()->value.neg()){
+								pw->getBase()->value.absN();
+								pr->simple = false;
+							}
+						}
+					}else if(pr->contExpr[i]->exprType == ABS){
+						pr->simple = false;
+						pr->contExpr[i]->becomeInternal(pr->contExpr[i]->contExpr[0]);
+					}
+				}
+				pr->simple = false;
+				pr->simplify();
+			
+			}
+			if(contExpr[0]->exprType == PROD && constant()){//unit circle
+				Expr *pr = contExpr[0];
+				//
+				bool foundPi = false;
+				long int num = 1,den = 1;
+				bool foundOther = false;
+				for(int i = 0;i<pr->numOfContExpr;i++){
+					bool integer = pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == INT;
+					bool inverseInt = false;
+					if(pr->contExpr[i]->exprType == POW){
+						if(pr->contExpr[i]->expoIsMinusOne() && pr->contExpr[i]->getBase()->exprType == NUM && pr->contExpr[i]->getBase()->value.rep == INT){
+							inverseInt = true;
+						}
+					}
+					bool isPi = pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == PIV;
+					if(integer){
+						num = pr->contExpr[i]->value.valueI;
+					}else if(inverseInt){
+						den = pr->contExpr[i]->getBase()->value.valueI;
+					}else if(isPi){
+						foundPi = true;
+					}else{
+						foundOther = true;
+					}
+					
+				}
+				if(foundPi && !foundOther){
+					contExpr[0] = sumC(contExpr[0],prodC(piC(),invC(numC(2L))));
+					exprType = SIN;
+					simplify();
+					return;
+				}
+			}
+			
+			
 			if(contExpr[0]->exprType == NUM && contExpr[0]->value.equalsI(0L)){//cos(0) -> 1
 				clearElements();
 				exprType = NUM;
 				value.setValueI(1L);
+				return;
+			}else if(contExpr[0]->exprType == NUM && contExpr[0]->value.rep == PIV){
+				clearElements();
+				exprType = NUM;
+				value.setValueI(-1L);
 				return;
 			}
 		
@@ -2855,7 +3042,6 @@ namespace microCas{
 	}
 	void Expr::integSimp(){
 		if(exprType == INTEG){
-		
 		
 		}
 	}
