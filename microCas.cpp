@@ -852,6 +852,22 @@ namespace microCas{
 				}
 				simple = false;
 				simplify();
+			}else if(contExpr[0]->exprType == SIN){
+				Expr *repl = prodC(cosC(contExpr[0]->contExpr[0]->copy()),diffC(contExpr[0]->contExpr[0]->copy()));
+				clearElements();
+				become(repl);
+				simplify();
+				return;
+			}else if(contExpr[0]->exprType == COS){
+				Expr *repl = prodC(sinC(contExpr[0]->contExpr[0]->copy()),diffC(contExpr[0]->contExpr[0]->copy()));
+				repl->addElement(numC(-1L));
+				clearElements();
+				become(repl);
+				simplify();
+				return;
+			}else if(contExpr[0]->exprType == INTEG){
+				becomeInternal(contExpr[0]->contExpr[0]);
+				return;
 			}
 		}
 	}
@@ -1811,47 +1827,64 @@ namespace microCas{
 			}
 			
 			
-			{//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs 
-				Expr *lg = nullptr;
-				for(int i = 0;i < numOfContExpr;i++){
-					
+			{//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs
+				bool contLogs = false;
+				for(int i = 0;i<numOfContExpr;i++){
 					if(contExpr[i]->exprType == LOG){
-						if(!lg) lg = new Expr(LOG,new Expr(PROD));
-						lg->contExpr[0]->addElement(contExpr[i]->contExpr[0]);
-						contExpr[i]->contExpr[0] = nullptr;
-						removeElement(i);
-						i--;
+						contLogs = true;
+						break;
 					}else if(contExpr[i]->exprType == PROD){
-						
 						Expr *pr = contExpr[i];
-						int indexOfLog = -1;
 						int count = 0;
 						for(int j = 0;j<pr->numOfContExpr;j++){
 							if(pr->contExpr[j]->exprType == LOG){
-								indexOfLog = j;
 								count++;
 							}
 						}
-						if(indexOfLog != -1 && count == 1){
-							contExpr[i]=nullptr;
-							removeElement(i);
-							i--;
-							Expr *nwbs = pr->contExpr[indexOfLog]->contExpr[0];
-							pr->contExpr[indexOfLog]->contExpr[0] = nullptr;
-							pr->removeElement(indexOfLog);
-							Expr *nwpw = powC(nwbs,pr);
-							if(!lg) lg = new Expr(LOG,new Expr(PROD));
-							lg->contExpr[0]->addElement(nwpw);
-							
+						if(count == 1){
+							contLogs = true;
+							break;
 						}
 					}
-				
 				}
-				if(lg){
+				if(contLogs){ 
+					Expr *lg = new Expr(LOG,new Expr(PROD));
+					for(int i = 0;i < numOfContExpr;i++){
+						
+						if(contExpr[i]->exprType == LOG){
+							
+							lg->contExpr[0]->addElement(contExpr[i]->contExpr[0]);
+							contExpr[i]->contExpr[0] = nullptr;
+							removeElement(i);
+							i--;
+						}else if(contExpr[i]->exprType == PROD){
+							
+							Expr *pr = contExpr[i];
+							int indexOfLog = -1;
+							int count = 0;
+							for(int j = 0;j<pr->numOfContExpr;j++){
+								if(pr->contExpr[j]->exprType == LOG){
+									indexOfLog = j;
+									count++;
+								}
+							}
+							if(indexOfLog != -1 && count == 1){
+								contExpr[i]=nullptr;
+								removeElement(i);
+								i--;
+								Expr *nwbs = pr->contExpr[indexOfLog]->contExpr[0];
+								pr->contExpr[indexOfLog]->contExpr[0] = nullptr;
+								pr->removeElement(indexOfLog);
+								Expr *nwpw = powC(nwbs,pr);
+								lg->contExpr[0]->addElement(nwpw);
+								
+							}
+						}
+					
+					}
 					lg->simplify();
 					addElement(lg);
 				}
-			
 			}
 			
 			{//x+5*x+2*x -> 8*x
@@ -3040,9 +3073,163 @@ namespace microCas{
 		
 		}
 	}
+	
+	Expr *linear(Expr *expr,Expr *var){//returns the a in a*x+b .used for integral
+		Expr *v = varC("0tmp.");
+		expr->replace(var,v);
+		bool c = expr->constant();
+		expr->replace(v,var);
+		delete v;
+		if(!c) {
+			return nullptr;
+		}
+		int count = 0;
+		Expr *og = expr;
+		if(expr->exprType == SUM){
+			for(int i = 0;i<og->numOfContExpr;i++){
+				if(og->contExpr[i]->contains(var)){
+					count++;
+					expr = expr->contExpr[i];
+				}
+			}
+		}else{
+			count = 1;
+		}
+		if(count != 1) return nullptr;
+		if(expr->equalStruct(var)){
+			return numC(1L);
+		}else if(expr->exprType == PROD){
+			Expr *cpy = expr->copy();
+			for(int i = 0;i<cpy->numOfContExpr;i++){
+				if(cpy->contExpr[i]->equalStruct(var)){
+					cpy->removeElement(i);
+					break;
+				}
+			}
+			if(cpy->constant()){
+				return cpy;
+			}else{
+				delete cpy;
+				return nullptr;
+			}
+		}
+		return nullptr;
+	}
 	void Expr::integSimp(){
 		if(exprType == INTEG){
-		
+			contExpr[0]->distr();
+			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
+				becomeInternal(contExpr[0]->contExpr[0]);
+				return;
+			}
+			if(contExpr[0]->exprType == SUM){//integral(x+y) -> integral(x)+integral(y)
+				becomeInternal(contExpr[0]);
+				for(int i = 0;i<numOfContExpr;i++){
+					contExpr[i] = integC(contExpr[i]);
+				}
+				simple = false;
+				simplify();
+				return;
+			}
+			if(contExpr[0]->exprType == PROD){//integral(5*x) -> 5*integral(x)
+				Expr *pr = contExpr[0];
+				Expr *replProd = nullptr;
+				for(int i = 0;i<pr->numOfContExpr;i++){
+					if(pr->contExpr[i]->constant()){
+						if(!replProd){
+							replProd = new Expr(PROD);
+						}
+						replProd->addElement(pr->contExpr[i]);
+						pr->contExpr[i] = nullptr;
+						pr->removeElement(i);
+						i--;
+					}
+				}
+				if(replProd){
+					replProd->addElement(copy());
+					clearElements();
+					become(replProd);
+					simplify();
+					return;
+				}
+			}
+			
+			if(contExpr[0]->exprType == PROD){//common forms integral(form*d(x))
+				Expr *pr = contExpr[0];
+				if(pr->numOfContExpr == 2){//find dx
+					Expr *var = nullptr;
+					Expr *otherPart = nullptr;
+					for(int i = 0;i<2;i++){
+						if(pr->contExpr[i]->exprType == DERI){
+							var = pr->contExpr[i]->contExpr[0];
+						}else{
+							otherPart = pr->contExpr[i];
+						}
+					}
+					if(var){
+						if(var->equalStruct(otherPart)){//integral(x*d(x)) -> x^2/2
+							Expr *repl = prodC(powC(var->copy(),numC(2L)),invC(numC(2L)));
+							clearElements();
+							become(repl);
+							simple = true;
+							return;
+						}
+						if(otherPart->exprType == POW){//integral((linear)^c.*d(x)) -> inv(a*(c+1))*(linear)^(c+1)
+							if(otherPart->getExpo()->constant()){
+								Expr *a = nullptr;
+								a = linear(otherPart->getBase(),var);
+								if(a){
+									if(otherPart->expoIsMinusOne()){
+										Expr *repl = prodC(invC(a),logC(otherPart->getBase()->copy()));
+										clearElements();
+										become(repl);
+										simplify();
+										return;
+									}else{
+									
+										Expr *cp1 = sumC(numC(1L),otherPart->getExpo()->copy());
+									
+										Expr *repl = prodC(invC(cp1),powC(otherPart->getBase()->copy(),cp1->copy()));
+										repl->addElement(invC(a));
+										clearElements();
+										become(repl);
+										simplify();
+										return;
+									}
+								}
+							}else if(otherPart->getBase()->constant()){//integral(n.^(linear)*d(x)) -> n.^(linear)/(ln(n.)*a)
+								Expr *a = nullptr;
+								a = linear(otherPart->getExpo(),var);
+								if(a){
+									Expr *repl = prodC(otherPart->copy(),invC(logC(otherPart->getBase()->copy())));
+									repl->addElement(invC(a));
+									clearElements();
+									become(repl);
+									simplify();
+									return;
+								}
+							}
+						}else if(otherPart->exprType == LOG){//integral(linear*d(x))
+							Expr *a = linear(otherPart->contExpr[0],var);
+							if(a){
+								Expr *repl = new Expr(PROD);
+								repl->addElement(invC(a));
+								repl->addElement(sumC(otherPart->copy(),numC(-1L)));
+								repl->addElement(otherPart->contExpr[0]->copy());
+								
+								clearElements();
+								become(repl);
+								simplify();
+								return;
+							}
+						}
+						
+						
+						
+					}
+				}
+			}
+			
 		}
 	}
 	//WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"simplify"W
