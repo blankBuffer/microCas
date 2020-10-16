@@ -407,7 +407,7 @@ namespace microCas{
 				}
 				
 			}else if(exprType == SUM){
-				if(numOfContExpr == 1) printf("alone:");
+				if(numOfContExpr < 2) printf("alone sum:");
 				for(int i = 0;i < numOfContExpr;i++){
 					bool pr = contExpr[i]->exprType == SUM || contExpr[i]->exprType == EQU;
 					if(pr) printf("(");
@@ -417,7 +417,7 @@ namespace microCas{
 				}
 				
 			}else if(exprType == PROD){
-				if(numOfContExpr == 1) printf("alone:");
+				if(numOfContExpr < 2) printf("alone product:");
 				for(int i = 0;i < numOfContExpr;i++){
 					bool pr = false;
 					
@@ -643,6 +643,17 @@ namespace microCas{
 			if(equalStruct(var)) return true;
 			else for(int i = 0;i < numOfContExpr;i++) if(contExpr[i]->contains(var)) return true;
 			
+			return false;
+		}
+		bool containsType(int exprT){
+			if(exprType == exprT) return true;
+			else{
+				for(int i = 0;i<numOfContExpr;i++){
+					if(contExpr[i]->containsType(exprT)){
+						return true;
+					}
+				}
+			}
 			return false;
 		}
 		bool containsVars(){
@@ -1735,6 +1746,7 @@ namespace microCas{
 				}
 			}
 			if(factors->numOfContExpr != 0){
+				simple = false;
 				factors->addElement(copy());
 				clearElements();
 				become(factors);
@@ -3148,18 +3160,15 @@ namespace microCas{
 	
 	void Expr::integSimp(bool usub){
 		if(exprType == INTEG){
-			contExpr[0]->distr();
+			
 			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
 				becomeInternal(contExpr[0]->contExpr[0]);
 				return;
 			}
-			if(contExpr[0]->exprType == SUM){//integral(x+y) -> integral(x)+integral(y)
-				becomeInternal(contExpr[0]);
-				for(int i = 0;i<numOfContExpr;i++){
-					contExpr[i] = integC(contExpr[i]);
-				}
-				simple = false;
-				simplify();
+			if(contExpr[0]->value.equalsI(0L) && contExpr[0]->exprType == NUM){//int 0 -> 0
+				clearElements();
+				exprType = NUM;
+				value.setValueI(0L);
 				return;
 			}
 			if(contExpr[0]->exprType == PROD){//integral(5*x) -> 5*integral(x)
@@ -3184,6 +3193,7 @@ namespace microCas{
 					return;
 				}
 			}
+			contExpr[0]->factor();
 			
 			if(contExpr[0]->exprType == PROD){//common forms integral(form*d(x))
 				Expr *pr = contExpr[0];
@@ -3303,6 +3313,34 @@ namespace microCas{
 					}
 				}
 				
+				if(var){//IBP integral(fraction*d(x)*expr ) -> expr*integral(fraction*d(x))-integral(d(expr)*integral(fraction*d(x))) fraction must have expo < -1
+					//example integral(x*e^(2*x)/(2*x+1)^2*d(x))
+					int indexOfFraction = -1;
+					for(int i = 0;i<pr->numOfContExpr;i++){
+						if(pr->contExpr[i]->exprType == POW){
+							Expr *pw = pr->contExpr[i];
+							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI < -1 && pw->contains(var)){
+								indexOfFraction = i;
+								break;
+							}
+						}
+					}
+					if(indexOfFraction != -1){
+						Expr *fraction = integC(prodC(pr->contExpr[indexOfFraction],diffC(var->copy())));
+						pr->contExpr[indexOfFraction] = nullptr;
+						pr->removeElement(indexOfFraction);
+						pr->addElement(invC(diffC(var->copy())));
+						fraction->simplify();
+						pr->simplify();
+						
+						Expr *repl = sumC(prodC(pr->copy(),fraction),prodC(numC(-1L),integC(prodC(diffC(pr->copy()),fraction->copy()))));
+						clearElements();
+						become(repl);
+						simplify();
+						return;
+					}
+				}
+				
 				if(var && usub){//u sub
 					//find most nested part that is not dx
 					int max = 0;
@@ -3316,7 +3354,17 @@ namespace microCas{
 					}
 					Expr *mostComplicated = pr->contExpr[indexOfHighestDepth];
 					if(mostComplicated->numOfContExpr > 0){
-						Expr *inner = mostComplicated->contExpr[0];
+						
+						max = 0;
+						int indexOfHighestDepth2 = 0;
+						for(int k = 0;k<mostComplicated->numOfContExpr;k++){
+							int depth = mostComplicated->contExpr[k]->nestDepth();
+							if(depth>max){
+								max = depth;
+								indexOfHighestDepth2 = k;
+							}
+						}
+						Expr *inner = mostComplicated->contExpr[indexOfHighestDepth2];
 						
 						Expr *u = varC("0u");
 						
@@ -3419,6 +3467,31 @@ namespace microCas{
 					
 				}
 				
+			}
+			
+			contExpr[0]->distr();
+			if(contExpr[0]->exprType == SUM){//integral(x+y) -> integral(x)+integral(y)
+				Expr *sm = contExpr[0];
+				Expr *repl = nullptr;
+				for(int i = 0;i<sm->numOfContExpr;i++){
+					Expr *test = integC(sm->contExpr[i]->copy());
+					test->simplify();
+					if(!test->containsType(INTEG) || test->exprType == SUM){
+						if(!repl){
+							repl = new Expr(SUM);
+						}
+						repl->addElement(test);
+						sm->removeElement(i);
+						i--;
+					}else delete test;
+				}
+				if(repl){
+					repl->addElement(copy());
+					clearElements();
+					become(repl);
+					simplify();
+					return;
+				}
 			}
 			
 		}
