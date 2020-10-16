@@ -679,6 +679,19 @@ namespace microCas{
 			value.setValue(&other->value);
 			delete other;
 		}
+		int nestDepth(){
+			if(numOfContExpr == 0){
+				return 1;
+			}
+			int max = 0;
+			for(int i = 0;i < numOfContExpr;i++){
+				int depth = contExpr[i]->nestDepth();
+				if(depth>max){
+					max = depth;
+				}
+			}
+			return max+1;
+		}
 		//deletion
 		~Expr(){
 			clearElements();
@@ -702,7 +715,10 @@ namespace microCas{
 		void equSimp();
 		void sinSimp();
 		void cosSimp();
-		void integSimp();
+		void integSimp(bool usub);
+		void integSimp(){
+			integSimp(true);
+		}
 		//substitution
 		void replace(Expr* old,Expr *repl){
 			if(contains(old)){
@@ -921,6 +937,15 @@ namespace microCas{
 					return;
 				}
 				
+			}
+			
+			if(getExpo()->exprType == NUM && getExpo()->value.equalsI(2L) && getBase()->exprType == SIN){
+				getBase()->exprType = COS;
+				Expr *repl = sumC(numC(1L),prodC(numC(-1L),copy()));
+				clearElements();
+				become(repl);
+				simplify();
+				return;
 			}
 			
 			if(constant()){//(a+b)^n where n is integer -> (a+b)*(a+b)... n times, base must be sum and constant
@@ -1828,11 +1853,10 @@ namespace microCas{
 			
 			
 			{//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs
-				bool contLogs = false;
+				int countOuter = 0;
 				for(int i = 0;i<numOfContExpr;i++){
 					if(contExpr[i]->exprType == LOG){
-						contLogs = true;
-						break;
+						countOuter++;
 					}else if(contExpr[i]->exprType == PROD){
 						Expr *pr = contExpr[i];
 						int count = 0;
@@ -1842,12 +1866,11 @@ namespace microCas{
 							}
 						}
 						if(count == 1){
-							contLogs = true;
-							break;
+							countOuter++;
 						}
 					}
 				}
-				if(contLogs){ 
+				if(countOuter > 1){ 
 					Expr *lg = new Expr(LOG,new Expr(PROD));
 					for(int i = 0;i < numOfContExpr;i++){
 						
@@ -3115,7 +3138,8 @@ namespace microCas{
 		}
 		return nullptr;
 	}
-	void Expr::integSimp(){
+	
+	void Expr::integSimp(bool usub){
 		if(exprType == INTEG){
 			contExpr[0]->distr();
 			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
@@ -3156,7 +3180,7 @@ namespace microCas{
 			
 			if(contExpr[0]->exprType == PROD){//common forms integral(form*d(x))
 				Expr *pr = contExpr[0];
-				if(pr->numOfContExpr == 2){//find dx
+				if(pr->numOfContExpr == 2){//simple integrals
 					Expr *var = nullptr;
 					Expr *otherPart = nullptr;
 					for(int i = 0;i<2;i++){
@@ -3176,8 +3200,7 @@ namespace microCas{
 						}
 						if(otherPart->exprType == POW){//integral((linear)^c.*d(x)) -> inv(a*(c+1))*(linear)^(c+1)
 							if(otherPart->getExpo()->constant()){
-								Expr *a = nullptr;
-								a = linear(otherPart->getBase(),var);
+								Expr *a = linear(otherPart->getBase(),var);
 								if(a){
 									if(otherPart->expoIsMinusOne()){
 										Expr *repl = prodC(invC(a),logC(otherPart->getBase()->copy()));
@@ -3196,6 +3219,25 @@ namespace microCas{
 										simplify();
 										return;
 									}
+								}else if(otherPart->getExpo()->exprType == NUM && otherPart->getExpo()->value.equalsI(2L)){
+									
+									if(otherPart->getBase()->exprType == COS){
+										Expr *inner = otherPart->getBase()->contExpr[0];
+										Expr *a = linear(inner,var);
+										if(a){
+											
+											Expr *repl = sinC(prodC(inner->copy(),numC(2L)));
+											Expr *twax = prodC(a,var->copy());
+											twax->addElement(numC(2L));
+											repl = prodC(sumC(twax,repl),invC(numC(4L)));
+											repl->addElement(invC(a->copy()));
+											clearElements();
+											become(repl);
+											simplify();
+											return;
+										}
+									}
+									
 								}
 							}else if(otherPart->getBase()->constant()){//integral(n.^(linear)*d(x)) -> n.^(linear)/(ln(n.)*a)
 								Expr *a = nullptr;
@@ -3209,7 +3251,7 @@ namespace microCas{
 									return;
 								}
 							}
-						}else if(otherPart->exprType == LOG){//integral(linear*d(x))
+						}else if(otherPart->exprType == LOG){//integral(ln(linear)*d(x))
 							Expr *a = linear(otherPart->contExpr[0],var);
 							if(a){
 								Expr *repl = new Expr(PROD);
@@ -3222,12 +3264,122 @@ namespace microCas{
 								simplify();
 								return;
 							}
+						}else if(otherPart->exprType == COS){
+							Expr *a = linear(otherPart->contExpr[0],var);
+							if(a){
+								Expr *repl = prodC(sinC(otherPart->contExpr[0]->copy()),invC(a));
+								clearElements();
+								become(repl);
+								simplify();
+								return;
+							}
+						}else if(otherPart->exprType == SIN){
+							Expr *a = linear(otherPart->contExpr[0],var);
+							if(a){
+								Expr *repl = prodC(cosC(otherPart->contExpr[0]->copy()),invC(a));
+								repl->addElement(numC(-1L));
+								clearElements();
+								become(repl);
+								simplify();
+								return;
+							}
 						}
 						
 						
 						
 					}
 				}
+				Expr *var = nullptr;
+				for(int i = 0;i<pr->numOfContExpr;i++){
+					if(pr->contExpr[i]->exprType == DERI){
+						var = pr->contExpr[i]->contExpr[0];
+					}
+				}
+				if(var && usub){//u sub
+					//find most nested part that is not dx
+					int max = 0;
+					int indexOfHighestDepth = 0;
+					for(int i = 0;i < pr->numOfContExpr;i++){
+						int depth = pr->contExpr[i]->nestDepth();
+						if(depth>max){
+							max = depth;
+							indexOfHighestDepth = i;
+						}
+					}
+					Expr *mostComplicated = pr->contExpr[indexOfHighestDepth];
+					if(mostComplicated->numOfContExpr > 0){
+						Expr *inner = mostComplicated->contExpr[0];
+						
+						Expr *u = varC("0u");
+						
+						Expr *mcu = pr->copy();
+						mcu->replace(inner,u);
+						
+						mcu->addElement(invC(diffC(inner->copy())));
+						mcu->addElement(diffC(u->copy()));
+						mcu->simplify();
+						mcu = integC(mcu);
+						mcu->integSimp(false);
+						if(mcu->contains(var)){
+							delete u;
+							delete mcu;
+						}else{
+							mcu->replace(u,inner);
+							delete u;
+							clearElements();
+							become(mcu);
+							simplify();
+							return;
+						}
+						
+						
+					}
+					
+				}
+				
+				if(var){//IBP  integral((polynomial)*(otherPart)) -> polynomial*integral(otherPart)-integral(d(polynomial)*integral(otherPart))	
+					int indexOfEasy = -1;
+					for(int i = 0;i<pr->numOfContExpr;i++){
+						if(pr->contExpr[i]->equalStruct(var)){
+							indexOfEasy = i;
+						}else if(pr->contExpr[i]->exprType == LOG){
+							indexOfEasy = i;
+							break;//logs are best option
+						}else if(pr->contExpr[i]->exprType == POW){
+							Expr *pw = pr->contExpr[i];
+							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI>0){
+								if(pw->getBase()->equalStruct(var)){
+									indexOfEasy = i;
+								}else if(pw->getBase()->exprType == LOG){
+									indexOfEasy = i;
+									break;//logs are best option
+								}else{
+									Expr *a = linear(pw->getBase(),var);
+									if(a){
+										delete a;
+										indexOfEasy = i;
+									}
+								}
+							}
+						}
+					}
+					if(indexOfEasy!=-1){
+						Expr *easy = pr->contExpr[indexOfEasy];
+						pr->contExpr[indexOfEasy] = nullptr;
+						pr->removeElement(indexOfEasy);
+						
+						Expr *otherPartIntegral = integC(pr->copy());
+						otherPartIntegral->simplify();
+						Expr *repl = sumC(prodC(easy,otherPartIntegral),prodC(numC(-1L),integC(prodC(diffC(easy->copy()),otherPartIntegral->copy()))));
+						clearElements();
+						become(repl);
+						simplify();
+						return;
+					}
+					
+					
+				}
+				
 			}
 			
 		}
@@ -3345,6 +3497,8 @@ namespace microCas{
 				printf("	S : sine of last element on stack\n");
 				printf("	C : cosine of last element on stack\n");
 				printf("	I : integrate last element on stack\n");
+				printf("	F : factor last element on stack\n");
+				printf("	D : distribute last element on stack\n");
 			}
 			else if(op == 's'){
 				printStack();
@@ -3578,6 +3732,10 @@ namespace microCas{
 			}else if(op == 'I'){
 				if(height < 1) printf("-need more elements\n");
 				else stack[height-1] = integC(stack[height-1]);
+			}else if(op == 'F'){
+				stack[height-1]->factor();
+			}else if(op == 'D'){
+				stack[height-1]->distr();
 			}
 			
 		}
