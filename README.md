@@ -1,5 +1,5 @@
 # microCas
-c++ computer algebra system. 3rd attempt. Solves, diffreciates and simplifies a wider variety of equations.
+c++ computer algebra system. 3rd attempt. Solves, diffreciates, simplifies and integrates a wide variety of equations.
 
 when starting the program in a terminal it gives you a choice of which program to choose. These include a polynomial solver the CAS and a grapher. 
 The polynomial solver can solve any polynomial of any degree and find all the real solutions. It uses the property that the derivative of polynomials
