@@ -939,7 +939,7 @@ namespace microCas{
 				
 			}
 			
-			if(getExpo()->exprType == NUM && getExpo()->value.equalsI(2L) && getBase()->exprType == SIN){
+			if(getExpo()->exprType == NUM && getExpo()->value.equalsI(2L) && getBase()->exprType == SIN){//sin(x)^2 = 1-cos(x)^2
 				getBase()->exprType = COS;
 				Expr *repl = sumC(numC(1L),prodC(numC(-1L),copy()));
 				clearElements();
@@ -1176,8 +1176,6 @@ namespace microCas{
 						direction = RIGHT;
 						return;
 					}
-				}else{
-					direction = INDET;
 				}
 			}
 			
@@ -2163,15 +2161,24 @@ namespace microCas{
 			}
 			
 			{//x*0 -> 0
+				bool foundInf = false;
+				bool foundZero = false;
 				for(int i = 0;i< numOfContExpr;i++){
 					if(contExpr[i]->exprType == NUM){
 						if(contExpr[i]->value.equalsI(0L)){
-							clearElements();
-							exprType = NUM;
-							value.setValueI(0L);
-							return;
+							foundZero = true;
+						}else if(contExpr[i]->value.rep == INF || contExpr[i]->value.rep == NEGINF || contExpr[i]->value.rep == UNDEF){
+							foundInf = true;
 						}
 					}
+				}
+				if(foundZero && !foundInf){
+					clearElements();
+					exprType = NUM;
+					value.setValueI(0L);
+					return;
+				}else if(foundZero && foundInf){
+					direction = INDET;
 				}
 			}
 			
@@ -3295,6 +3302,7 @@ namespace microCas{
 						var = pr->contExpr[i]->contExpr[0];
 					}
 				}
+				
 				if(var && usub){//u sub
 					//find most nested part that is not dx
 					int max = 0;
@@ -3313,17 +3321,18 @@ namespace microCas{
 						Expr *u = varC("0u");
 						
 						Expr *mcu = pr->copy();
-						mcu->replace(inner,u);
+						mcu->contExpr[indexOfHighestDepth]->replace(inner,u);
 						
 						mcu->addElement(invC(diffC(inner->copy())));
 						mcu->addElement(diffC(u->copy()));
 						mcu->simplify();
-						mcu = integC(mcu);
-						mcu->integSimp(false);
+						
 						if(mcu->contains(var)){
 							delete u;
 							delete mcu;
 						}else{
+							mcu = integC(mcu);
+							mcu->integSimp(false);
 							mcu->replace(u,inner);
 							delete u;
 							clearElements();
@@ -3335,6 +3344,36 @@ namespace microCas{
 						
 					}
 					
+				}
+				
+				if(var && pr->numOfContExpr > 2){//u sub special case: example integral(sin(x)*cos(x)*d(x)) or integral(ln(x)*inv(x)*d(x))
+					
+					for(int i = 0;i< pr->numOfContExpr;i++){
+						Expr *leftOver = diffC(pr->contExpr[i]->copy());
+						leftOver->simplify();
+						Expr *a = new Expr(PROD);
+						if(leftOver->exprType == PROD){
+							for(int k = 0;k<leftOver->numOfContExpr;k++){
+								if(leftOver->contExpr[k]->constant()){
+									a->addElement(leftOver->contExpr[k]);
+									leftOver->contExpr[k] = nullptr;
+									leftOver->removeElement(k);
+									k--;
+								}
+							}
+						}
+						leftOver = prodC(pr->copy(),invC(leftOver));
+						leftOver->simplify();
+						if(leftOver->equalStruct(pr->contExpr[i])){
+							clearElements();
+							become(prodC(powC(leftOver,numC(2L)),invC(numC(2L))));
+							addElement(invC(a));
+							simplify();
+							return;
+						}
+						delete a;
+						delete leftOver;
+					}
 				}
 				
 				if(var){//IBP  integral((polynomial)*(otherPart)) -> polynomial*integral(otherPart)-integral(d(polynomial)*integral(otherPart))	
