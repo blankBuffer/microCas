@@ -12,10 +12,11 @@ My goal was to make a cas in under 5000 lines of code
 to show that all of highschools math can be decribed in ONE file
 
 */
+
+const bool ERRORS = false;// errors shows illegal memory accesses and memory leaks
+
 #pragma pack(push, 1)
 namespace microCas{
-	const bool ERRORS = false;// errors shows illegal memory accesses and memory leaks
-	
 	int objCount = 0;
 	const short maxNameLength = 8;
 	
@@ -130,7 +131,7 @@ namespace microCas{
 		void addN(Num *other){
 			if(rep == INT && other->rep == INT){
 				double backup = (double)valueI+(double)other->valueI;//checking for over or under flow
-				if(backup>LONG_MAX||backup<LONG_MIN) rep = FLOAT;
+				if(backup>(double)LONG_MAX||backup<LONG_MIN) rep = FLOAT;
 				valueF = backup;
 				valueI+=other->valueI;
 				if((valueI < 0) != (backup < 0)) rep = FLOAT;
@@ -144,7 +145,7 @@ namespace microCas{
 		void multN(Num *other){
 			if(rep == INT && other->rep == INT){
 				double backup = (double)valueI*(double)other->valueI;//checking for over or under flow
-				if(backup>LONG_MAX||backup<LONG_MIN) rep = FLOAT;
+				if(backup>(double)LONG_MAX||backup<(double)LONG_MIN) rep = FLOAT;
 				valueF = backup;
 				valueI*=other->valueI;
 			}else{
@@ -167,7 +168,7 @@ namespace microCas{
 		void powN(Num *other){
 			if(rep == INT && other->rep == INT){
 				double backup = pow((double)valueI,(double)other->valueI);//checking for over or under flow
-				if(backup>LONG_MAX||backup<LONG_MIN) rep = FLOAT;
+				if(backup>(double)LONG_MAX||backup<(double)LONG_MIN) rep = FLOAT;
 				valueF = backup;
 				valueI = pow(valueI,other->valueI);
 			}else{
@@ -220,7 +221,7 @@ namespace microCas{
 				printf("π");
 				return;
 			}else if(rep == EV){
-				printf("e");
+				printf("𝑒");
 				return;
 			}else if(rep == INF){
 				printf("∞");
@@ -338,7 +339,7 @@ namespace microCas{
 			}
 			if(direction != MIDDLE) printf("(");
 			if(exprType == INTEG){
-				printf("integral(");
+				printf("∫(");
 				contExpr[0]->print();
 				printf(")");
 			}else if(exprType == COS){
@@ -368,9 +369,12 @@ namespace microCas{
 			}else if(exprType == POW){
 				bool special = false;
 				if(expoIsMinusOne()){
-					printf("inv(");
+					bool peren = false;
+					if(getBase()->exprType == SUM || getBase()->exprType == PROD) peren = true;
+					printf("1/");
+					if(peren) printf("(");
 					if(getBase()) getBase()->print();
-					printf(")");
+					if(peren) printf(")");
 					special = true;
 				}
 				if(!special && getExpo()->exprType == POW){
@@ -413,33 +417,112 @@ namespace microCas{
 					if(pr) printf("(");
 					if(contExpr[i]) contExpr[i]->print();
 					if(pr) printf(")");
-					if(i!=numOfContExpr-1) printf("+");
+					
+					bool nextNeg = false;
+					if(i!=numOfContExpr-1){
+						Expr *next = contExpr[i+1];
+						if(next->exprType == PROD){
+							for(int i = 0;i<next->numOfContExpr;i++){
+								if(next->contExpr[i]->exprType == NUM && next->contExpr[i]->value.neg()){
+									nextNeg = true;
+									break;
+								}
+							
+							}
+						}else if(next->exprType == NUM && next->value.neg()){
+							nextNeg = true;
+						}
+						
+					}
+					
+					if(i!=numOfContExpr-1 && !nextNeg) printf("+");
 				}
 				
 			}else if(exprType == PROD){
 				if(numOfContExpr < 2) printf("alone product:");
+				
+				int indexOfNeg = -1;
+				bool neg = false;
+				bool negOne = false;
 				for(int i = 0;i < numOfContExpr;i++){
+					if(contExpr[i]->exprType == NUM && contExpr[i]->value.neg()){
+						if(contExpr[i]->value.equalsI(-1L)) negOne = true;
+						neg = !neg;
+						indexOfNeg = i;
+						break;
+					}
+				}
+				
+				bool startsWithDiv = false;
+				if(numOfContExpr > 0){
+					if(contExpr[0] -> exprType == POW){
+						if(contExpr[0]->expoIsMinusOne()){
+							startsWithDiv = true;
+						}
+					}
+				}
+				
+				if(neg){
+					bool nextIsDiv = false;
+					if(numOfContExpr>1){
+						if(contExpr[1]->exprType == POW){
+							if(contExpr[1]->expoIsMinusOne()) nextIsDiv = true;
+						}
+					}
+				
+					if(negOne && !nextIsDiv) printf("-");
+					else{
+						contExpr[indexOfNeg]->print();
+						if(!nextIsDiv) printf("·");
+					}
+				}
+				
+				for(int i = startsWithDiv;i < numOfContExpr;i++){
+					if(i == indexOfNeg) continue;
 					bool pr = false;
 					
 					if(contExpr[i]->exprType == PROD || contExpr[i]->exprType == SUM || contExpr[i]->exprType == EQU) pr = true;
 					
 					if(pr) printf("(");
-					if(contExpr[i]) contExpr[i]->print();
+					if(contExpr[i]){
+						if(contExpr[i]->exprType == POW){
+							if(contExpr[i]->expoIsMinusOne()){
+								printf("/");
+								contExpr[i]->getBase()->print();
+						
+							}else contExpr[i]->print();
+						}else contExpr[i]->print();
+					}
 					if(pr) printf(")");
-					if(i!=numOfContExpr-1) printf("*");
+					
+					bool div = false;
+					if(i!=numOfContExpr-1){
+						Expr *next = contExpr[i+1];
+						if(next->exprType == POW){
+							if(next->expoIsMinusOne()) div = true;
+						}
+					}
+					
+					if(! (i==numOfContExpr-1 || (indexOfNeg == numOfContExpr-1 && i+1==indexOfNeg))){
+						if(!div) printf("·");
+					}
+				}
+				if(startsWithDiv){
+					printf("/");
+					contExpr[0]->getBase()->print();
 				}
 			}else if(exprType == LOG){
-				printf("log(");
+				printf("ln(");
 				if(contExpr[0]) contExpr[0]->print();
 				printf(")");
 			}else if(exprType == DERI){
-				printf("d(");
+				printf("𝕕(");
 				if(contExpr[0]) contExpr[0]->print();
 				printf(")");
 			}else if(exprType == ABS){
-				printf("abs(");
+				printf("|");
 				if(contExpr[0]) contExpr[0]->print();
-				printf(")");
+				printf("|");
 			}else if(exprType == LIST){
 				printf("[");
 				for(int i = 0;i<numOfContExpr;i++){
@@ -726,10 +809,7 @@ namespace microCas{
 		void equSimp();
 		void sinSimp();
 		void cosSimp();
-		void integSimp(bool usub);
-		void integSimp(){
-			integSimp(true);
-		}
+		void integSimp();
 		//substitution
 		void replace(Expr* old,Expr *repl){
 			if(contains(old)){
@@ -1200,7 +1280,7 @@ namespace microCas{
 						int count = 0;
 						int indexOfLog;
 						for(int i = 0;i < pr->numOfContExpr;i++){
-							if(pr->contExpr[i]->exprType == LOG){
+							if(pr->contExpr[i]->exprType == LOG && !pr->contExpr[i]->constant()){//2^ln(x) -> x^ln(2) makes integrals easier
 								count++;
 								indexOfLog = i;
 							}
@@ -1518,7 +1598,8 @@ namespace microCas{
 	
 	void Expr::factor(){
 		if(exprType == SUM){
-			
+			//printf("factoring\n");
+			//println();
 			{//move leading hash to front
 				double max = 0.0;
 				int indexOfLeader;
@@ -1650,9 +1731,11 @@ namespace microCas{
 					delete ele;
 					firstEle->contExpr[i] = nullptr;
 				}else{
+					Num maxExpo(1L);
 					if(ele->exprType == POW){
 						if(ele->getExpo()->exprType == NUM){
 							if(ele->getExpo()->value.plain() && !ele->getExpo()->value.neg()){
+								maxExpo.setValue(&ele->getExpo()->value);
 								ele->becomeInternal(ele->getBase());
 							}
 						}
@@ -1665,11 +1748,20 @@ namespace microCas{
 							for(int k = 0; k < pr->numOfContExpr;k++){
 								if(pr->contExpr[k]->equalStruct(ele)){
 									found = true;
+									maxExpo.setValueI(1L);
 									break;
 								}else if(pr->contExpr[k]->exprType == POW){
 									Expr *pw = pr->contExpr[k];
 									if(pw->getBase()->equalStruct(ele) && pw->getExpo()->exprType == NUM){
 										if(pw->getExpo()->value.plain() && !pw->getExpo()->value.neg()){
+											if(pw->getExpo()->value.rep == FLOAT) maxExpo.convertToFloat();
+											if(maxExpo.rep == FLOAT){
+												if(maxExpo.valueF > pw->getExpo()->value.valueF){
+													maxExpo.setValue(&pw->getExpo()->value);
+												}
+											}else if(maxExpo.valueI > pw->getExpo()->value.valueI){
+												maxExpo.setValue(&pw->getExpo()->value);
+											}
 											found = true;
 											break;
 										}
@@ -1680,12 +1772,23 @@ namespace microCas{
 							if(found) continue;
 						}
 						
-						if(contExpr[j]->equalStruct(ele)) continue;
+						if(contExpr[j]->equalStruct(ele)){
+							maxExpo.setValueI(1L);
+							continue;
+						}
 						
 						if(contExpr[j]->exprType == POW){
 							Expr *pw = contExpr[j];
 							if(pw->getBase()->equalStruct(ele) && pw->getExpo()->exprType == NUM){
 								if(pw->getExpo()->value.plain() && !pw->getExpo()->value.neg()){
+									if(pw->getExpo()->value.rep == FLOAT) maxExpo.convertToFloat();
+									if(maxExpo.rep == FLOAT){
+										if(maxExpo.valueF > pw->getExpo()->value.valueF){
+											maxExpo.setValue(&pw->getExpo()->value);
+										}
+									}else if(maxExpo.valueI > pw->getExpo()->value.valueI){
+										maxExpo.setValue(&pw->getExpo()->value);
+									}
 									continue;
 								}
 							}
@@ -1696,7 +1799,11 @@ namespace microCas{
 						
 					}
 					if(allHaveIt){
-						factors->addElement(ele);
+						
+						factors->addElement(powC(ele,new Expr(&maxExpo)));
+						maxExpo.valueI = -maxExpo.valueI;
+						maxExpo.valueF = -maxExpo.valueF;
+						
 						for(int j = 0; j< numOfContExpr;j++){
 							if(contExpr[j]->equalStruct(ele)){
 								delete contExpr[j];
@@ -1707,8 +1814,7 @@ namespace microCas{
 								Expr *pw = contExpr[j];
 								if(pw->getBase()->equalStruct(ele) && pw->getExpo()->exprType == NUM){
 									if(pw->getExpo()->value.plain() && !pw->getExpo()->value.neg()){
-										Num negOne(-1L);
-										pw->getExpo()->value.addN(&negOne);
+										pw->getExpo()->value.addN(&maxExpo);
 										pw->simple = false;
 										pw->simplify();
 										continue;
@@ -1726,9 +1832,8 @@ namespace microCas{
 									}else if(pr->contExpr[k]->exprType == POW){
 										Expr *pw = pr->contExpr[k];
 										if(pw->getBase()->equalStruct(ele) && pw->getExpo()->exprType == NUM){
-											if(pw->getExpo()->value.plain() && !pw->getExpo()->value.neg()){
-												Num negOne(-1L);
-												pw->getExpo()->value.addN(&negOne);
+											if(pw->getExpo()->value.plain() && !pw->getExpo()->value.neg()){		
+												pw->getExpo()->value.addN(&maxExpo);
 												pw->simple = false;
 												pw->simplify();
 												break;
@@ -1862,7 +1967,7 @@ namespace microCas{
 			}
 			
 			
-			{//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs
+			if(addFractions){//3*ln(4)+4*ln(7) -> 2*ln(392) && // merging logs
 				int countOuter = 0;
 				for(int i = 0;i<numOfContExpr;i++){
 					if(contExpr[i]->exprType == LOG){
@@ -2736,7 +2841,7 @@ namespace microCas{
 					return;
 				}
 				if(!changed){
-					printf("-unable to isolate variable\n");
+					if(ERRORS) printf("-unable to isolate variable\n");
 					break;
 				}	
 			}
@@ -3116,51 +3221,9 @@ namespace microCas{
 		}
 	}
 	
-	Expr *linear(Expr *expr,Expr *var){//returns the a in a*x+b .used for integral
-		Expr *v = varC("0tmp.");
-		expr->replace(var,v);
-		bool c = expr->constant();
-		expr->replace(v,var);
-		delete v;
-		if(!c) {
-			return nullptr;
-		}
-		int count = 0;
-		Expr *og = expr;
-		if(expr->exprType == SUM){
-			for(int i = 0;i<og->numOfContExpr;i++){
-				if(og->contExpr[i]->contains(var)){
-					count++;
-					expr = expr->contExpr[i];
-				}
-			}
-		}else{
-			count = 1;
-		}
-		if(count != 1) return nullptr;
-		if(expr->equalStruct(var)){
-			return numC(1L);
-		}else if(expr->exprType == PROD){
-			Expr *cpy = expr->copy();
-			for(int i = 0;i<cpy->numOfContExpr;i++){
-				if(cpy->contExpr[i]->equalStruct(var)){
-					cpy->removeElement(i);
-					break;
-				}
-			}
-			if(cpy->constant()){
-				return cpy;
-			}else{
-				delete cpy;
-				return nullptr;
-			}
-		}
-		return nullptr;
-	}
-	
-	void Expr::integSimp(bool usub){
+	void Expr::integSimp(){
 		if(exprType == INTEG){
-			
+			//println();
 			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
 				becomeInternal(contExpr[0]->contExpr[0]);
 				return;
@@ -3216,88 +3279,53 @@ namespace microCas{
 							return;
 						}
 						if(otherPart->exprType == POW){//integral((linear)^c.*d(x)) -> inv(a*(c+1))*(linear)^(c+1)
-							if(otherPart->getExpo()->constant()){
-								Expr *a = linear(otherPart->getBase(),var);
-								if(a){
-									if(otherPart->expoIsMinusOne()){
-										Expr *repl = prodC(invC(a),logC(otherPart->getBase()->copy()));
+							Expr *pw = otherPart;
+							if(pw->getExpo()->constant()){
+								if(pw->getBase()->equalStruct(var)){
+									if(pw->expoIsMinusOne()){//1/x -> ln(x)
+										Expr *repl = logC(var->copy());
 										clearElements();
 										become(repl);
-										simplify();
+										simple = true;
 										return;
 									}else{
-									
-										Expr *cp1 = sumC(numC(1L),otherPart->getExpo()->copy());
-									
-										Expr *repl = prodC(invC(cp1),powC(otherPart->getBase()->copy(),cp1->copy()));
-										repl->addElement(invC(a));
+										Expr *expoPlusOne = sumC(pw->getExpo()->copy(),numC(1L));
+										Expr *repl = prodC(powC(var->copy(),expoPlusOne),invC(expoPlusOne->copy()));
 										clearElements();
 										become(repl);
 										simplify();
 										return;
 									}
-								}else if(otherPart->getExpo()->exprType == NUM && otherPart->getExpo()->value.equalsI(2L)){
-									
-									if(otherPart->getBase()->exprType == COS){
-										Expr *inner = otherPart->getBase()->contExpr[0];
-										Expr *a = linear(inner,var);
-										if(a){
-											
-											Expr *repl = sinC(prodC(inner->copy(),numC(2L)));
-											Expr *twax = prodC(a,var->copy());
-											twax->addElement(numC(2L));
-											repl = prodC(sumC(twax,repl),invC(numC(4L)));
-											repl->addElement(invC(a->copy()));
-											clearElements();
-											become(repl);
-											simplify();
-											return;
-										}
-									}
-									
-								}
-							}else if(otherPart->getBase()->constant()){//integral(n.^(linear)*d(x)) -> n.^(linear)/(ln(n.)*a)
-								Expr *a = nullptr;
-								a = linear(otherPart->getExpo(),var);
-								if(a){
-									Expr *repl = prodC(otherPart->copy(),invC(logC(otherPart->getBase()->copy())));
-									repl->addElement(invC(a));
+								}else if(pw->getBase()->exprType == COS && pw->getExpo()->exprType == NUM && pw->getExpo()->value.equalsI(2L)){
+									Expr *repl = prodC( sumC( var->copy(),prodC(sinC(var->copy()),cosC(var->copy())) ) ,invC(numC(2)));
 									clearElements();
 									become(repl);
-									simplify();
+									simple = true;
+									return;
+								}
+							}else if(pw->getBase()->constant()){
+								if(pw->getExpo()->equalStruct(var)){
+									Expr *repl = prodC(invC(logC(pw->getBase()->copy())),pw->copy());
+									clearElements();
+									become(repl);
+									simple = true;
 									return;
 								}
 							}
-						}else if(otherPart->exprType == LOG){//integral(ln(linear)*d(x))
-							Expr *a = linear(otherPart->contExpr[0],var);
-							if(a){
-								Expr *repl = new Expr(PROD);
-								repl->addElement(invC(a));
-								repl->addElement(sumC(otherPart->copy(),numC(-1L)));
-								repl->addElement(otherPart->contExpr[0]->copy());
-								
+						}else if(otherPart->exprType == COS){//integral of cos
+							if(otherPart->contExpr[0]->equalStruct(var)){
+								Expr *repl = sinC(var->copy());
 								clearElements();
 								become(repl);
-								simplify();
+								simple = true;
 								return;
 							}
-						}else if(otherPart->exprType == COS){
-							Expr *a = linear(otherPart->contExpr[0],var);
-							if(a){
-								Expr *repl = prodC(sinC(otherPart->contExpr[0]->copy()),invC(a));
+						}else if(otherPart->exprType == SIN){//integral of sin
+							if(otherPart->contExpr[0]->equalStruct(var)){
+								Expr *repl =  prodC(cosC(var->copy()),numC(-1L));
 								clearElements();
 								become(repl);
-								simplify();
-								return;
-							}
-						}else if(otherPart->exprType == SIN){
-							Expr *a = linear(otherPart->contExpr[0],var);
-							if(a){
-								Expr *repl = prodC(cosC(otherPart->contExpr[0]->copy()),invC(a));
-								repl->addElement(numC(-1L));
-								clearElements();
-								become(repl);
-								simplify();
+								simple = true;
 								return;
 							}
 						}
@@ -3310,88 +3338,14 @@ namespace microCas{
 				for(int i = 0;i<pr->numOfContExpr;i++){
 					if(pr->contExpr[i]->exprType == DERI){
 						var = pr->contExpr[i]->contExpr[0];
-					}
-				}
-				
-				if(var){//IBP integral(fraction*d(x)*expr ) -> expr*integral(fraction*d(x))-integral(d(expr)*integral(fraction*d(x))) fraction must have expo < -1
-					//example integral(x*e^(2*x)/(2*x+1)^2*d(x))
-					int indexOfFraction = -1;
-					for(int i = 0;i<pr->numOfContExpr;i++){
-						if(pr->contExpr[i]->exprType == POW){
-							Expr *pw = pr->contExpr[i];
-							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI < -1 && pw->contains(var)){
-								indexOfFraction = i;
-								break;
-							}
+					}else if(pr->contExpr[i]->exprType == POW){//a^b -> e^(ln(a)*b) if b is non constant helpful for u sub
+						Expr *pw = pr->contExpr[i];
+						if(!pw->getExpo()->constant()){
+							pw->setExpo(prodC(logC(pw->getBase()),pw->getExpo()));
+							pw->setBase(eC());
+							pw->getExpo()->simplify();
 						}
 					}
-					if(indexOfFraction != -1){
-						Expr *fraction = integC(prodC(pr->contExpr[indexOfFraction],diffC(var->copy())));
-						pr->contExpr[indexOfFraction] = nullptr;
-						pr->removeElement(indexOfFraction);
-						pr->addElement(invC(diffC(var->copy())));
-						fraction->simplify();
-						pr->simplify();
-						
-						Expr *repl = sumC(prodC(pr->copy(),fraction),prodC(numC(-1L),integC(prodC(diffC(pr->copy()),fraction->copy()))));
-						clearElements();
-						become(repl);
-						simplify();
-						return;
-					}
-				}
-				
-				if(var && usub){//u sub
-					//find most nested part that is not dx
-					int max = 0;
-					int indexOfHighestDepth = 0;
-					for(int i = 0;i < pr->numOfContExpr;i++){
-						int depth = pr->contExpr[i]->nestDepth();
-						if(depth>max){
-							max = depth;
-							indexOfHighestDepth = i;
-						}
-					}
-					Expr *mostComplicated = pr->contExpr[indexOfHighestDepth];
-					if(mostComplicated->numOfContExpr > 0){
-						
-						max = 0;
-						int indexOfHighestDepth2 = 0;
-						for(int k = 0;k<mostComplicated->numOfContExpr;k++){
-							int depth = mostComplicated->contExpr[k]->nestDepth();
-							if(depth>max){
-								max = depth;
-								indexOfHighestDepth2 = k;
-							}
-						}
-						Expr *inner = mostComplicated->contExpr[indexOfHighestDepth2];
-						
-						Expr *u = varC("0u");
-						
-						Expr *mcu = pr->copy();
-						mcu->contExpr[indexOfHighestDepth]->replace(inner,u);
-						
-						mcu->addElement(invC(diffC(inner->copy())));
-						mcu->addElement(diffC(u->copy()));
-						mcu->simplify();
-						
-						if(mcu->contains(var)){
-							delete u;
-							delete mcu;
-						}else{
-							mcu = integC(mcu);
-							mcu->integSimp(false);
-							mcu->replace(u,inner);
-							delete u;
-							clearElements();
-							become(mcu);
-							simplify();
-							return;
-						}
-						
-						
-					}
-					
 				}
 				
 				if(var && pr->numOfContExpr > 2){//u sub special case: example integral(sin(x)*cos(x)*d(x)) or integral(ln(x)*inv(x)*d(x))
@@ -3413,6 +3367,11 @@ namespace microCas{
 						leftOver = prodC(pr->copy(),invC(leftOver));
 						leftOver->simplify();
 						if(leftOver->equalStruct(pr->contExpr[i])){
+							if(ERRORS){
+								printf("u=");
+								leftOver->println();
+								printf("special u sub\n");
+							}
 							clearElements();
 							become(prodC(powC(leftOver,numC(2L)),invC(numC(2L))));
 							addElement(invC(a));
@@ -3424,34 +3383,232 @@ namespace microCas{
 					}
 				}
 				
+				
+				
+				if(var && strcmp(var->name,"0u") != 0){//general u sub
+					//find most nested part that is not dx and not a sum
+					int max = 0;
+					int indexOfHighestDepth = 0;
+					for(int i = 0;i < pr->numOfContExpr;i++){
+						int depth = pr->contExpr[i]->nestDepth();
+						if(depth>max && pr->contExpr[i]->exprType != SUM){
+							max = depth;
+							indexOfHighestDepth = i;
+						}
+					}
+					Expr *mostComplicated = pr->contExpr[indexOfHighestDepth];
+					if(mostComplicated->numOfContExpr > 0){
+						
+						max = 0;
+						int indexOfHighestDepth2 = 0;
+						for(int k = 0;k<mostComplicated->numOfContExpr;k++){
+							if(!mostComplicated->contExpr[k]->constant()){
+								int depth = mostComplicated->contExpr[k]->nestDepth();
+								if(depth>max){
+									max = depth;
+									indexOfHighestDepth2 = k;
+								}
+							}
+						}
+						Expr *inner = mostComplicated->contExpr[indexOfHighestDepth2];
+						
+						Expr *u = varC("0u");
+						
+						Expr *mcu = pr->copy();
+						mcu->contExpr[indexOfHighestDepth]->replace(inner,u);
+						
+						mcu->addElement(invC(diffC(inner->copy())));
+						mcu->addElement(diffC(u->copy()));
+						mcu->simplify();
+						
+						if(mcu->contains(var)){
+							Expr *inTermsOfU = new Expr(SOLVE,equC(u->copy(),inner->copy()),var->copy());
+							inTermsOfU->simplify();
+							
+							
+							if(inTermsOfU->exprType == EQU){
+								if(ERRORS){
+									printf("u=");
+									inner->println();
+									printf("normal u sub with solve\n");
+								}
+								Expr *temp = inTermsOfU->contExpr[1];
+								inTermsOfU->contExpr[1] = nullptr;
+								delete inTermsOfU;
+								inTermsOfU = temp;
+								mcu->replace(var,inTermsOfU);
+								delete inTermsOfU;
+								mcu = integC(mcu);
+								mcu->simplify();
+								
+								if(!mcu->containsType(INTEG)){
+									mcu->replace(u,inner);
+									delete u;
+									clearElements();
+									become(mcu);
+									simple = false;
+									simplify();
+									return;
+								}else{
+									delete u;
+									delete mcu;
+								}
+								
+							}else{
+								delete inTermsOfU;
+								delete u;
+								delete mcu;
+							}
+						}else{
+							if(ERRORS){
+								printf("u=");
+								inner->println();
+								printf("normal u sub\n");
+							}
+							mcu = integC(mcu);
+							mcu->simplify();
+							mcu->replace(u,inner);
+							delete u;
+							clearElements();
+							become(mcu);
+							simple = false;
+							simplify();
+							return;
+						}
+						
+						
+					}
+					
+				}
+				
+				
+				if(var){//(x+1)^2 gets expanded for integration by parts easier
+					for(int i = 0;i < pr->numOfContExpr;i++){
+						if(pr->contExpr[i]->exprType == POW){
+							Expr *pw = pr->contExpr[i];
+							if(pw->getExpo()->exprType == NUM && pw->getBase()->exprType == SUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI > 0 && pw->getExpo()->value.valueI < 3){
+								Expr *u = varC("0u.");
+								pw->replace(var,u);
+								
+								pw->simplify();
+								
+								pw->replace(u,var);
+								delete u;
+							}
+						}
+					}
+				}
+				
+				if(var){//IBP integral(fraction*d(x)*expr ) -> expr*integral(fraction*d(x))-integral(d(expr)*integral(fraction*d(x))) fraction must have expo < -1
+					//example integral(x*e^(2*x)/(2*x+1)^2*d(x))
+					int indexOfFraction = -1;
+					for(int i = 0;i<pr->numOfContExpr;i++){
+						if(pr->contExpr[i]->exprType == POW){
+							Expr *pw = pr->contExpr[i];
+							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI < -1 && pw->contains(var) && pw->getBase()->equalStruct(var)){
+								indexOfFraction = i;
+								break;
+							}else if(pw->getExpo()->exprType == PROD && pw->getBase()->equalStruct(var)){
+								Expr *pwPr = pw->getExpo();
+								if(pwPr->numOfContExpr == 2){
+									Expr *num = nullptr,*den = nullptr;
+									for(int j = 0;j<pwPr->numOfContExpr;j++){
+										if(pwPr->contExpr[j]->exprType == NUM && pwPr->contExpr[j]->value.rep == INT){
+											num = pwPr->contExpr[j];
+										}else if(pwPr->contExpr[j]->exprType == POW){
+											Expr *pw = pwPr->contExpr[j];
+											if(pw->expoIsMinusOne() && pw->getBase()->exprType == NUM && pw->getBase()->value.rep == INT){
+												den = pw->getBase();
+											}
+										}else break;
+									}
+									if(num && den){
+										if(-num->value.valueI > den->value.valueI){
+											indexOfFraction = i;
+											break;
+										}
+										
+									}
+								}
+							}
+						}
+					}
+					if(indexOfFraction != -1){
+						if(ERRORS){
+							printf("integrate :");
+							pr->contExpr[indexOfFraction]->println();
+							printf("special IBP\n");
+						}
+						Expr *fraction = integC(prodC(pr->contExpr[indexOfFraction],diffC(var->copy())));
+						pr->contExpr[indexOfFraction] = nullptr;
+						pr->removeElement(indexOfFraction);
+						pr->addElement(invC(diffC(var->copy())));
+						fraction->simplify();
+						pr->simplify();
+						
+						Expr *repl = sumC(prodC(pr->copy(),fraction),prodC(numC(-1L),integC(prodC(diffC(pr->copy()),fraction->copy()))));
+						clearElements();
+						become(repl);
+						simplify();
+						return;
+					}
+				}
+				
 				if(var){//IBP  integral((polynomial)*(otherPart)) -> polynomial*integral(otherPart)-integral(d(polynomial)*integral(otherPart))	
 					int indexOfEasy = -1;
 					for(int i = 0;i<pr->numOfContExpr;i++){
 						if(pr->contExpr[i]->equalStruct(var)){
 							indexOfEasy = i;
-						}else if(pr->contExpr[i]->exprType == LOG){
+						
+						}else if(pr->contExpr[i]->exprType == SUM){//no sums should exist
+							indexOfEasy = -1;
+							break;
+						}else if(pr->contExpr[i]->exprType == LOG && pr->contExpr[i]->contExpr[0]->equalStruct(var)){
+							
 							indexOfEasy = i;
 							break;//logs are best option
+							
 						}else if(pr->contExpr[i]->exprType == POW){
 							Expr *pw = pr->contExpr[i];
-							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI>0){
-								if(pw->getBase()->equalStruct(var)){
-									indexOfEasy = i;
-								}else if(pw->getBase()->exprType == LOG){
-									indexOfEasy = i;
-									break;//logs are best option
-								}else{
-									Expr *a = linear(pw->getBase(),var);
-									if(a){
-										delete a;
+							if(pw->getBase()->equalStruct(var)){
+								if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI>0){
+									if(pw->getBase()->equalStruct(var)){
+										indexOfEasy = i;
+									}else if(pw->getBase()->exprType == LOG){
+										indexOfEasy = i;
+										break;//logs are best option
+									}
+								}else if(pw->getExpo()->exprType == PROD && pw->getExpo()->constant()){
+									
+									Expr *prExpo = pw->getExpo();
+									bool neg = false;
+									for(int j = 0;j<prExpo->numOfContExpr;j++){
+										if(prExpo->contExpr[j]->exprType == NUM){
+											if(prExpo->contExpr[j]->value.neg()){
+												   neg = true;
+												   break;
+											}
+										}
+									}
+									if(!neg) indexOfEasy = i;
+									
+								}else if(pw->getExpo()->exprType == POW && pw->getExpo()->constant()){
+									Expr *expoPw = pw->getExpo();
+									if(expoPw->expoIsMinusOne() && expoPw->getBase()->exprType == NUM && !expoPw->getBase()->value.neg()){
 										indexOfEasy = i;
 									}
 								}
 							}
 						}
 					}
+					
 					if(indexOfEasy!=-1){
 						Expr *easy = pr->contExpr[indexOfEasy];
+						if(ERRORS){
+							printf("diffrenciate:");
+							easy->println();
+							printf("normal IBP\n");
+						}
 						pr->contExpr[indexOfEasy] = nullptr;
 						pr->removeElement(indexOfEasy);
 						
@@ -3467,30 +3624,48 @@ namespace microCas{
 					
 				}
 				
+				
 			}
-			
 			contExpr[0]->distr();
 			if(contExpr[0]->exprType == SUM){//integral(x+y) -> integral(x)+integral(y)
-				Expr *sm = contExpr[0];
-				Expr *repl = nullptr;
-				for(int i = 0;i<sm->numOfContExpr;i++){
-					Expr *test = integC(sm->contExpr[i]->copy());
-					test->simplify();
-					if(!test->containsType(INTEG) || test->exprType == SUM){
-						if(!repl){
-							repl = new Expr(SUM);
+				//check to see how many variables are involved
+				bool oneVar = false;
+				Expr *var = nullptr;
+				if(contExpr[0]->contExpr[0]->exprType == PROD){
+					Expr *pr = contExpr[0]->contExpr[0];
+					for(int i = 0;i < pr->numOfContExpr;i++){
+						if(pr->contExpr[i]->exprType == DERI){
+							var = pr->contExpr[i]->contExpr[0]->copy();
+							break;
 						}
-						repl->addElement(test);
-						sm->removeElement(i);
-						i--;
-					}else delete test;
+					}	
+				}else if(contExpr[0]->contExpr[0]->exprType == DERI){
+					var = contExpr[0]->contExpr[0]->contExpr[0]->copy();
 				}
-				if(repl){
-					repl->addElement(copy());
-					clearElements();
-					become(repl);
-					simplify();
-					return;
+				if(var){
+					Expr *temp = varC("0x.");
+					replace(var,temp);
+					if(constant()) oneVar = true;
+					replace(temp,var);
+					delete var;
+					delete temp;
+					if(oneVar){
+						Expr *sm = contExpr[0];
+						Expr *repl = new Expr(SUM);
+						for(int i = 0;i<sm->numOfContExpr;i++){
+							Expr *peice = integC(sm->contExpr[i]->copy());
+							peice->simplify();
+							repl->addElement(peice);
+							sm->removeElement(i);
+							i--;
+						}
+						
+						repl->addElement(copy());
+						clearElements();
+						become(repl);
+						simplify();
+						return;
+					}
 				}
 			}
 			
@@ -3544,17 +3719,23 @@ namespace microCas{
 	Expr *stack[STACK_MAX];
 	int height = 0;
 	
-	void printStack(){
-		printf("****************\n");
+	void printStack(bool clear){
+		if(!ERRORS && clear) system("clear");
+		printf("_________________\n");
 		for(int i = 0;i<height;i++){
 			printf(": ");
 			stack[i]->println();
 		}
-		printf("****************\n");
+		printf("_________________\n");
 	
 	}
 	
+	void printStack(){
+		printStack(true);
+	}
+	
 	void clearStack(){
+		if(!ERRORS) system("clear");
 		for(int i = 0;i<height;i++) delete stack[i];
 		height = 0;
 	}
@@ -3571,8 +3752,8 @@ namespace microCas{
 			if(op == 'h'){
 				printf("all commands are one character\nlist of all commands:\n");
 				printf("	h : help\n");
-				printf("	s : print stack\n");
 				printf("	c : clear stack\n");
+				printf("	s : print stack\n");
 				printf("	r : calculate result of last element on stack\n");
 				printf("	o : tells how many objects are in heap\n");
 				printf("	n : add integer to stack\n");
@@ -3613,7 +3794,7 @@ namespace microCas{
 				printf("	D : distribute last element on stack\n");
 			}
 			else if(op == 's'){
-				printStack();
+				printStack(false);
 			}
 			else if(op == 'c'){
 				clearStack();
@@ -3621,14 +3802,13 @@ namespace microCas{
 			else if(op == 'r'){
 				if(height == 0)	printf("-nothing on stack\n");
 				else{
+					if(!ERRORS) system("clear");
 					long int start,end;
 					start = clock();
 					stack[height-1]->simplify();
 					end = clock();
-					
+					printStack();
 					printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
-					printf("result: ");
-					stack[height-1]->println();
 				}
 			}
 			else if(op == 'o'){
@@ -3640,6 +3820,7 @@ namespace microCas{
 				scanf("%ld",&val);
 				stack[height] = numC(val);
 				height++;
+				printStack();
 			}
 			else if(op == 'f'){
 				printf("type in floating value\n");
@@ -3647,11 +3828,13 @@ namespace microCas{
 				scanf("%lf",&val);
 				stack[height] = numFC(val);
 				height++;
+				printStack();
 			}
 			else if(op == 'p'){
 				if(height!=0){
 					delete stack[height-1];
 					height--;
+					printStack();
 				}else{
 					printf("-can't delete\n");
 				}
@@ -3668,21 +3851,24 @@ namespace microCas{
 			}
 			else if(op == 'd'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1] = diffC(stack[height-1]);
+				else{
+					stack[height-1] = diffC(stack[height-1]);
+					printStack();
+				}
 			}
 			else if(op == '3'){
 				Expr *out = new Expr(NUM);
 				out->value.rep = PIV;
 				stack[height] = out;
-				printf("-added pi to stack\n");
 				height++;
+				printStack();
 			}
 			else if(op == '2'){
 				Expr *out = new Expr(NUM);
 				out->value.rep = EV;
 				stack[height] = out;
-				printf("-added e to stack\n");
 				height++;
+				printStack();
 			}
 			else if(op == 'v'){
 				printf("-type in name\n");
@@ -3696,6 +3882,7 @@ namespace microCas{
 				}else{
 					stack[height] = varC(name);
 					height++;
+					printStack();
 				}
 			}
 			else if(op == '+'){
@@ -3710,6 +3897,7 @@ namespace microCas{
 						stack[height-2] = sumC(stack[height-2],stack[height-1]);
 					}
 					height--;
+					printStack();
 				}
 			}
 			else if(op == '*'){
@@ -3724,6 +3912,7 @@ namespace microCas{
 						stack[height-2] = prodC(stack[height-2],stack[height-1]);
 					}
 					height--;
+					printStack();
 				}
 			}
 			else if(op == '^'){
@@ -3731,31 +3920,43 @@ namespace microCas{
 				else{
 					stack[height-2] = powC(stack[height-2],stack[height-1]);
 					height--;
+					printStack();
 				}
 			}
 			else if(op == '-'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1] = prodC(numC(-1),stack[height-1]);
+				else{
+					stack[height-1] = prodC(numC(-1),stack[height-1]);
+					printStack();
+				}
 			}
 			else if(op == 'i'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1] = powC(stack[height-1],numC(-1));
+				else{
+					stack[height-1] = powC(stack[height-1],numC(-1));
+					printStack();
+				}
 			}
 			else if(op == 'l'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1] = logC(stack[height-1]);
+				else{
+					stack[height-1] = logC(stack[height-1]);
+					printStack();
+				}
 			}else if(op == '>'){
 				if(height<2) printf("-need more elements\n");
 				else{
 					Expr *temp = stack[height-1];
 					stack[height-1] = stack[height-2];
 					stack[height-2] = temp;
+					printStack();
 				}
 			}else if(op == ';'){
 				if(height<1) printf("-nothing on stack\n");
 				else{
 					stack[height] = stack[height-1]->copy();
 					height++;
+					printStack();
 				}
 			}
 			else if(op == '#'){
@@ -3766,6 +3967,7 @@ namespace microCas{
 						if(i == 0) stack[i] = og;
 						else stack[i] = stack[i-1];
 					}
+					printStack();
 				}
 			}else if(op == '/'){
 				if(height<2) printf("-need more elements\n");
@@ -3773,33 +3975,43 @@ namespace microCas{
 					if(stack[height-2]->exprType == PROD) stack[height-2]->addElement(invC(stack[height-1]));
 					else stack[height-2] = prodC(stack[height-2],invC(stack[height-1]));
 					height--;
+					printStack();
 				}
 			}else if(op == 'w'){
 				if(height<1) printf("-need more elements\n");
-				else stack[height-1] = powC(stack[height-1],powC(numC(2L),numC(-1L)));
+				else {
+					stack[height-1] = powC(stack[height-1],powC(numC(2L),numC(-1L)));
+					printStack();
+				}
 			}else if(op == '='){
 				if(height < 2) printf("-need more elements\n");
 				else{
 					stack[height-2] = equC(stack[height-2],stack[height-1]);
 					height--;
+					printStack();
 				}
 			}else if(op == 'u'){
 				if(height < 2) printf("-need more elements\n");
 				else{
 					stack[height-2] = new Expr(SOLVE,stack[height-2],stack[height-1]);
 					height--;
+					printStack();
 				}
 			}else if(op == '0'){
 				if(height==0) printf("-nothing on stack\n");
 				else printf("%lf\n",stack[height-1]->hash());
 			}else if(op == '|'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1] = absC(stack[height-1]);
+				else{
+					stack[height-1] = absC(stack[height-1]);
+					printStack();
+				}
 			}else if(op == ']'){
 				if(stack[height-2]){
 					if(stack[height-2]->exprType == LIST){
 						stack[height-2]->addElement(stack[height-1]);
 						height--;
+						printStack();
 					}else{
 						printf("-no list to add to\n");
 					}
@@ -3809,12 +4021,19 @@ namespace microCas{
 			}else if(op == '['){
 				stack[height] = new Expr(LIST);
 				height++;
+				printStack();
 			}else if(op == 'z'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1]->direction = LEFT;
+				else{
+					stack[height-1]->direction = LEFT;
+					printStack();
+				}
 			}else if(op == 'x'){
 				if(height<1) printf("-nothing on stack\n");
-				else stack[height-1]->direction = RIGHT;
+				else{
+					stack[height-1]->direction = RIGHT;
+					printStack();
+				}
 			}else if(op == '6'){
 				if(height < 2) printf("-need more elements\n");
 				else {
@@ -3825,33 +4044,98 @@ namespace microCas{
 				stack[height] = new Expr(NUM);
 				stack[height]->value.rep = NEGINF;
 				height++;
+				printStack();
 			}else if(op == '5'){
 				stack[height] = new Expr(NUM);
 				stack[height]->value.rep = INF;
 				height++;
+				printStack();
 			}else if(op == 't'){
 				if(height < 2) printf("-need more elements\n");
 				else{
 					stack[height-2] = new Expr(SUBST,stack[height-2],stack[height-1]);
 					height--;
+					printStack();
 				}
 			}else if(op == 'S'){
 				if(height < 1) printf("-need more elements\n");
-				else stack[height-1] = sinC(stack[height-1]);
+				else{
+					stack[height-1] = sinC(stack[height-1]);
+					printStack();
+				}
 			}else if(op == 'C'){
 				if(height < 1) printf("-need more elements\n");
-				else stack[height-1] = cosC(stack[height-1]);
+				else{
+					stack[height-1] = cosC(stack[height-1]);
+					printStack();
+				}
 			}else if(op == 'I'){
 				if(height < 1) printf("-need more elements\n");
-				else stack[height-1] = integC(stack[height-1]);
+				else{
+					stack[height-1] = integC(stack[height-1]);
+					printStack();
+				}
+				
 			}else if(op == 'F'){
+				if(!ERRORS) system("clear");
+				long int start,end;
+				start = clock();
 				stack[height-1]->factor();
+				end = clock();
+				
+				printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
+				printf("result: ");
+				stack[height-1]->println();
 			}else if(op == 'D'){
+				if(!ERRORS) system("clear");
+				long int start,end;
+				start = clock();
 				stack[height-1]->distr();
+				end = clock();
+				
+				printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
+				printf("result: ");
+				stack[height-1]->println();
+			}
+		}
+		
+	}
+	void printString(char *str,int len){
+		for(int i = 0;i<len;i++){
+			printf("%c",str[i]);
+		}
+		printf("\n");
+	}
+	Expr *stringToExpr(char *text,int textLength){
+		//read from right to left
+		
+		Expr *sum = new Expr(SUM);
+		
+		int parenLevel = 0;
+		int lastIndexOfPeren = 0;
+		for(int i = textLength-1;i > -1;i--){
+			if( text[i] == ')' && parenLevel == 0){
+				parenLevel ++;
+				lastIndexOfPeren = i;
+			}else if(text[i] == ')' ){
+				parenLevel ++;
+			}
+			
+			if(parenLevel == 0){
+				printf("%c",text[i]);
+			}
+			
+			if( text[i] == '(' && parenLevel == 1){
+				parenLevel --;
+				printf("\n");
+				sum->addElement(stringToExpr(&text[i]+1,lastIndexOfPeren-i-1));
+				printf("\n");
+			}else if(text[i] == '('){
+				parenLevel --;
 			}
 			
 		}
-		
+		return sum;
 	}
 }
 
@@ -4007,11 +4291,21 @@ namespace simpleTools{
 #pragma pack(pop)
 
 void toolSelect(){
+	system("clear");
 	printf("Created By Benjamin Currie @2020\n");
+	/*
+	char text[100];
+	for(int i = 0;i<100;i++) text[i] = 0; 
+	scanf("%s",text);
+	microCas::Expr *test = microCas::stringToExpr(text,100);
+	test->println();
+	delete test;
+	*/
 	while(true){
 		printf("Tool Selecter:\nc : rpn cas\np : numeric polynomial solver\ng : grapher\n");
 		char op;
 		scanf("\n%c",&op);
+		if(!ERRORS) system("clear");
 		if(op == 'c'){
 			using namespace microCas;
 			delete rpnCas();
