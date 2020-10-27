@@ -100,18 +100,22 @@ namespace microCas{
 		
 		Num(int r){
 			rep = r;
+			objCount++;
 		}
 		Num(long int v){
 			setValueI(v);
+			objCount++;
 		}
 		Num(double v){
 			setValueF(v);
+			objCount++;
 		}
 		Num(Num *num){
 			setValue(num);
+			objCount++;
 		}
 		Num(){
-		
+			objCount++;
 		}
 		bool plain(){//not a transedental number
 			return rep == INT || rep == FLOAT;
@@ -239,9 +243,12 @@ namespace microCas{
 			print();
 			printf("\n");
 		}
+		~Num(){
+			objCount--;
+		}
 	};
-	const char SUM = 0,PROD = 1,POW = 2,NUM = 3,VAR = 4,LOG = 5,DERI = 6,EQU = 7,ABS = 8,LIST = 9,SOLVE = 10,LIMIT = 11,SUBST = 12,INTEG = 13,SIN = 14,COS = 15;//expr types
-	const char MIDDLE = 0,LEFT = 1,RIGHT = 2,INDET = 3;//direction
+	const char SUM = 0,PROD = 1,POW = 2,NUM = 3,VAR = 4,LOG = 5,DERI = 6,EQU = 7,ABS = 8,LIST = 9,SOLVE = 10,LIMIT = 11,SUBST = 12,INTEG = 13,SIN = 14,COS = 15,INDET = 16;//expr types
+	const char MIDDLE = 0,LEFT = 1,RIGHT = 2;//direction
 	//WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"Expr"W
 	struct Expr{//meant to be used on heap
 		char exprType;
@@ -333,7 +340,7 @@ namespace microCas{
 		}
 		//
 		void print(){
-			if(direction == INDET){
+			if(exprType == INDET){
 				printf("indet!");
 				return;
 			}
@@ -370,7 +377,7 @@ namespace microCas{
 				bool special = false;
 				if(expoIsMinusOne()){
 					bool peren = false;
-					if(getBase()->exprType == SUM || getBase()->exprType == PROD) peren = true;
+					if(getBase()->exprType == SUM || getBase()->exprType == PROD || getBase()->exprType == POW)  peren = true;
 					printf("1/");
 					if(peren) printf("(");
 					if(getBase()) getBase()->print();
@@ -453,31 +460,28 @@ namespace microCas{
 					}
 				}
 				
-				bool startsWithDiv = false;
-				if(numOfContExpr > 0){
-					if(contExpr[0] -> exprType == POW){
-						if(contExpr[0]->expoIsMinusOne()){
-							startsWithDiv = true;
-						}
-					}
-				}
-				
 				if(neg){
 					bool nextIsDiv = false;
 					if(numOfContExpr>1){
-						if(contExpr[1]->exprType == POW){
-							if(contExpr[1]->expoIsMinusOne()) nextIsDiv = true;
+						if(indexOfNeg == 0){
+							if(contExpr[1]->exprType == POW){
+								if(contExpr[1]->expoIsMinusOne()) nextIsDiv = true;
+							}
+						}else{
+							if(contExpr[0]->exprType == POW){
+								if(contExpr[0]->expoIsMinusOne()) nextIsDiv = true;
+							}
 						}
 					}
-				
+					
 					if(negOne && !nextIsDiv) printf("-");
 					else{
 						contExpr[indexOfNeg]->print();
 						if(!nextIsDiv) printf("·");
 					}
 				}
-				
-				for(int i = startsWithDiv;i < numOfContExpr;i++){
+				for(int i = 0;i < numOfContExpr;i++){
+					
 					if(i == indexOfNeg) continue;
 					bool pr = false;
 					
@@ -487,8 +491,13 @@ namespace microCas{
 					if(contExpr[i]){
 						if(contExpr[i]->exprType == POW){
 							if(contExpr[i]->expoIsMinusOne()){
-								printf("/");
+								if(i == 0 && !neg) printf("1/");
+								else printf("/");
+								bool paren = false;
+								if(contExpr[i]->getBase()->exprType == PROD || contExpr[i]->getBase()->exprType == SUM || contExpr[i]->getBase()->exprType == POW) paren = true;
+								if(paren) printf("(");
 								contExpr[i]->getBase()->print();
+								if(paren) printf(")");
 						
 							}else contExpr[i]->print();
 						}else contExpr[i]->print();
@@ -506,17 +515,14 @@ namespace microCas{
 					if(! (i==numOfContExpr-1 || (indexOfNeg == numOfContExpr-1 && i+1==indexOfNeg))){
 						if(!div) printf("·");
 					}
-				}
-				if(startsWithDiv){
-					printf("/");
-					contExpr[0]->getBase()->print();
+					
 				}
 			}else if(exprType == LOG){
 				printf("ln(");
 				if(contExpr[0]) contExpr[0]->print();
 				printf(")");
 			}else if(exprType == DERI){
-				printf("𝕕(");
+				printf("∂(");
 				if(contExpr[0]) contExpr[0]->print();
 				printf(")");
 			}else if(exprType == ABS){
@@ -539,9 +545,9 @@ namespace microCas{
 			}
 			
 			if(direction == LEFT){
-				printf(":-ε)");
+				printf("⁻)");
 			}else if(direction == RIGHT){
-				printf(":+ε)");
+				printf("⁺)");
 			}
 		}
 		void println(){
@@ -1212,23 +1218,26 @@ namespace microCas{
 				
 			}
 			
-			if(getExpo()->exprType == NUM && getExpo()->value.rep == INT){//-infinity^(-even number) -> 0+epsilon && -infinity^(-odd number) -> 0-epsilon
+			if(getExpo()->exprType == NUM && getExpo()->value.rep == INT){//(-infinity)^(-even number) -> 0+epsilon && (-infinity)^(-odd number) -> 0-epsilon
 				if(getBase()->exprType == NUM && getBase()->value.rep == NEGINF){
 					if(getExpo()->value.valueI%2L == 0){
-						direction = RIGHT;
+						
+						clearElements();
+						exprType = NUM;
+						value.rep = INF;
+						return;
 					}else{
-						direction = LEFT;
+						clearElements();
+						exprType = NUM;
+						value.rep = NEGINF;
+						return;
 					}
-					exprType = NUM;
-					value.setValueI(0L);
-					clearElements();
-					return;
 				}
 			}
 			
 			if(getBase()->value.rep != EV) {//a^b -> e^(ln(a)*b)
 				bool change = false;
-				if((getBase()->exprType == NUM && getBase()->value.rep == INF) || (getExpo()->exprType == NUM && getExpo()->value.rep == INF)){
+				if((getBase()->exprType == NUM && (getBase()->value.rep == INF || getBase()->value.rep == NEGINF) ) || (getExpo()->exprType == NUM && (getExpo()->value.rep == INF || getExpo()->value.rep == NEGINF))){
 					change = true;
 				}
 				if(getExpo()->exprType == POW){
@@ -1283,6 +1292,14 @@ namespace microCas{
 							if(pr->contExpr[i]->exprType == LOG && !pr->contExpr[i]->constant()){//2^ln(x) -> x^ln(2) makes integrals easier
 								count++;
 								indexOfLog = i;
+							}
+						}
+						if(count == 0){
+							for(int i = 0;i < pr->numOfContExpr;i++){
+								if(pr->contExpr[i]->exprType == LOG){
+									count++;
+									indexOfLog = i;
+								}
 							}
 						}
 						if(count == 1){					
@@ -1387,7 +1404,9 @@ namespace microCas{
 				
 				if(getExpo()->value.equalsI(0L)){//0^0 indeterminate form
 					if(getBase()->exprType == NUM && getBase()->value.equalsI(0L)){
-						direction = INDET;
+						clearElements();
+						exprType = INDET;
+						return;
 					}else{
 						clearElements();
 						exprType = NUM;
@@ -1882,13 +1901,17 @@ namespace microCas{
 							if(dir == 0 || dir == 1){
 								dir = 1;
 							}else{
-								direction = INDET;
+								clearElements();
+								exprType = INDET;
+								return;
 							}
 						}else if(contExpr[i]->value.rep == NEGINF){
 							if(dir == 0 || dir == -1){
 								dir = -1;
 							}else{
-								direction = INDET;
+								clearElements();
+								exprType = INDET;
+								return;
 							}
 						}
 					}
@@ -2295,7 +2318,9 @@ namespace microCas{
 					value.setValueI(0L);
 					return;
 				}else if(foundZero && foundInf){
-					direction = INDET;
+					clearElements();
+					exprType = INDET;
+					return;
 				}
 			}
 			
@@ -3223,7 +3248,7 @@ namespace microCas{
 	
 	void Expr::integSimp(){
 		if(exprType == INTEG){
-			//println();
+			println();
 			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
 				becomeInternal(contExpr[0]->contExpr[0]);
 				return;
@@ -3677,7 +3702,7 @@ namespace microCas{
 	}
 	
 	void Expr::simplify(bool addFractions){
-		//println();
+		if(simple) return;
 		if(exprType == SUBST){
 			if(contExpr[1]->exprType == EQU){
 				replace(contExpr[1]->contExpr[0],contExpr[1]->contExpr[1]);
@@ -3691,7 +3716,6 @@ namespace microCas{
 				simple = false;
 			}
 		}
-		if(simple) return;
 		if(exprType == VAR || exprType == NUM){
 			simple = true;
 			return;
@@ -3711,6 +3735,11 @@ namespace microCas{
 		else if(exprType == SIN) sinSimp();
 		else if(exprType == COS) cosSimp();
 		else if(exprType == INTEG) integSimp();
+		if(containsType(INDET)) {
+			clearElements();
+			exprType = INDET;
+			return;
+		}
 		simple = true;
 	}
 	//RPN scanner
@@ -3792,6 +3821,7 @@ namespace microCas{
 				printf("	I : integrate last element on stack\n");
 				printf("	F : factor last element on stack\n");
 				printf("	D : distribute last element on stack\n");
+				printf("	L : take the limit of expression\n");
 			}
 			else if(op == 's'){
 				printStack(false);
@@ -4058,44 +4088,49 @@ namespace microCas{
 					printStack();
 				}
 			}else if(op == 'S'){
-				if(height < 1) printf("-need more elements\n");
+				if(height < 1) printf("-nothing on stack\n");
 				else{
 					stack[height-1] = sinC(stack[height-1]);
 					printStack();
 				}
 			}else if(op == 'C'){
-				if(height < 1) printf("-need more elements\n");
+				if(height < 1) printf("-nothing on stack\n");
 				else{
 					stack[height-1] = cosC(stack[height-1]);
 					printStack();
 				}
 			}else if(op == 'I'){
-				if(height < 1) printf("-need more elements\n");
+				if(height < 1) printf("-nothing on stack\n");
 				else{
 					stack[height-1] = integC(stack[height-1]);
 					printStack();
 				}
 				
 			}else if(op == 'F'){
-				if(!ERRORS) system("clear");
-				long int start,end;
-				start = clock();
-				stack[height-1]->factor();
-				end = clock();
-				
-				printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
-				printf("result: ");
-				stack[height-1]->println();
+				if(height < 1) printf("-nothing on stack\n");
+				else{
+					if(!ERRORS) system("clear");
+					long int start,end;
+					start = clock();
+					stack[height-1]->factor();
+					end = clock();
+					printStack();
+					printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
+				}
 			}else if(op == 'D'){
-				if(!ERRORS) system("clear");
-				long int start,end;
-				start = clock();
-				stack[height-1]->distr();
-				end = clock();
+				if(height < 1) printf("-nothing on stack\n");
+				else{
+					if(!ERRORS) system("clear");
+					long int start,end;
+					start = clock();
+					stack[height-1]->distr();
+					end = clock();
+					printStack();
+					printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
+				}
+			}else if(op == 'L'){
 				
-				printf("-took %lf milli secs to compute\n",(double)(end-start)/1000.0);
-				printf("result: ");
-				stack[height-1]->println();
+			
 			}
 		}
 		
@@ -4291,7 +4326,7 @@ namespace simpleTools{
 #pragma pack(pop)
 
 void toolSelect(){
-	system("clear");
+	if(!ERRORS) system("clear");
 	printf("Created By Benjamin Currie @2020\n");
 	/*
 	char text[100];
