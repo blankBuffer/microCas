@@ -115,6 +115,7 @@ namespace microCas{
 			objCount++;
 		}
 		Num(){
+			rep = 0;
 			objCount++;
 		}
 		bool plain(){//not a transedental number
@@ -627,11 +628,13 @@ namespace microCas{
 			if(direction == LEFT) multiplier=0.99;
 			else if(direction == RIGHT) multiplier = 0.98;
 			if(exprType == NUM){
-				Num cpy(value);
+				
+				Num cpy(&value);
 				cpy.convertToFloat();
 				double v = cpy.valueF;
 				double a = 1+fabs(v);
 				return (0.5*((a+v)/a))*multiplier;
+				
 			}else if(exprType == VAR){
 				double v = 0.5;
 				int i = 0;
@@ -805,9 +808,9 @@ namespace microCas{
 		void simplify();
 		void simplify(bool addFractions);//simplify with flags
 		void derivSimp();
-		void powSimp();
+		void powSimp(bool sepPow);
 		void sumSimp(bool addFractions);
-		void prodSimp();
+		void prodSimp(bool sepPow);
 		void logSimp();
 		void solverSimp();
 		void absSimp();
@@ -816,6 +819,7 @@ namespace microCas{
 		void sinSimp();
 		void cosSimp();
 		void integSimp();
+		
 		//substitution
 		void replace(Expr* old,Expr *repl){
 			if(contains(old)){
@@ -985,8 +989,9 @@ namespace microCas{
 		}
 	}
 	
-	void Expr::powSimp(){
+	void Expr::powSimp(bool sepPow){
 		if(exprType == POW){
+			
 			{//can't tell with variables if epsilon increases or decrases
 				if(getBase()->containsVars()) getBase()->direction = MIDDLE;
 				if(getExpo()->containsVars()) getExpo()->direction = MIDDLE;
@@ -1154,28 +1159,6 @@ namespace microCas{
 			{//factor base and distr expo
 				getBase()->factor();
 				getExpo()->distr();
-			}
-			
-			{//(x*y)^a -> x^a*y^a
-				if(getBase()->exprType == PROD){
-					Expr *replace = new Expr(PROD);
-					Expr *pr = getBase();
-					for(int i = 0;i<pr->numOfContExpr;i++){
-						Expr *pow = powC(pr->contExpr[i],getExpo()->copy());
-						replace->addElement(pow);
-					}
-					pr->nullify();
-					clearElements();
-					exprType = PROD;
-					contExpr = replace->contExpr;
-					replace->contExpr = nullptr;
-					numOfContExpr = replace->numOfContExpr;
-					replace->numOfContExpr = 0;
-					delete replace;
-					simple = false;
-					simplify();
-					return;
-				}
 			}
 			
 			if(getBase()->exprType == NUM && getExpo()->exprType == NUM){//-1^-1-> -1
@@ -1361,45 +1344,71 @@ namespace microCas{
 					
 				}
 			}
-			if(getBase()->exprType == NUM && getBase()->value.rep == INT && getExpo()->exprType == PROD){//c^(5/2) -> c^(2+1/2) convert to mixed fraction
-				Expr *pr = getExpo();
-				if(pr->numOfContExpr == 2){
-					Expr *num = nullptr;
-					Expr *den = nullptr;
-					for(int i = 0;i < 2;i++){
-						if(pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == INT){
-							num = pr->contExpr[i];
-						}else if(pr->contExpr[i]->exprType == POW){
-							Expr *pw = pr->contExpr[i];
-							if(pw->expoIsMinusOne() && pw->getBase()->exprType == NUM && pw->getBase()->value.rep == INT){
-								den = pr->contExpr[i];
+			
+			{//(x*y)^a -> x^a*y^a
+				if(getBase()->exprType == PROD){
+					Expr *replace = new Expr(PROD);
+					Expr *pr = getBase();
+					for(int i = 0;i<pr->numOfContExpr;i++){
+						Expr *pow = powC(pr->contExpr[i],getExpo()->copy());
+						replace->addElement(pow);
+					}
+					pr->nullify();
+					clearElements();
+					exprType = PROD;
+					contExpr = replace->contExpr;
+					replace->contExpr = nullptr;
+					numOfContExpr = replace->numOfContExpr;
+					replace->numOfContExpr = 0;
+					delete replace;
+					simple = false;
+					simplify();
+					return;
+				}
+			}
+			
+			if(sepPow){
+				if(getBase()->exprType == NUM && getBase()->value.rep == INT && getExpo()->exprType == PROD){//c^(5/2) -> c^(2+1/2) convert to mixed fraction
+					Expr *pr = getExpo();
+					if(pr->numOfContExpr == 2){
+						Expr *num = nullptr;
+						Expr *den = nullptr;
+						for(int i = 0;i < 2;i++){
+							if(pr->contExpr[i]->exprType == NUM && pr->contExpr[i]->value.rep == INT){
+								num = pr->contExpr[i];
+							}else if(pr->contExpr[i]->exprType == POW){
+								Expr *pw = pr->contExpr[i];
+								if(pw->expoIsMinusOne() && pw->getBase()->exprType == NUM && pw->getBase()->value.rep == INT){
+									den = pr->contExpr[i];
+								}
 							}
 						}
-					}
-					if(num && den){
-						long int n,d,v;
-						bool neg = false;
-						
-						n = num->value.valueI;
-						d = den->getBase()->value.valueI;
-						if(abs(n)>abs(d)){
-							if(n<0) {
-								neg = true;
-								n = -n;
-							}
-							v = n/d;
-							n = n-v*d;
+						if(num && den){
+							long int n,d,v;
+							bool neg = false;
 							
-							if(neg){
-								n = -n;
-								v = -v;
+							n = num->value.valueI;
+							d = den->getBase()->value.valueI;
+							if(abs(n)>abs(d)){
+								if(n<0) {
+									neg = true;
+									n = -n;
+								}
+								v = n/d;
+								n = n-v*d;
+								
+								if(neg){
+									n = -n;
+									v = -v;
+								}
+								delete getExpo();
+								setExpo(sumC(numC(v),prodC(numC(n),invC(numC(d)))));
 							}
-							delete getExpo();
-							setExpo(sumC(numC(v),prodC(numC(n),invC(numC(d)))));
 						}
 					}
 				}
 			}
+			
 			if(getExpo()->exprType == NUM){//x^1 -> x && x^0 -> 1 
 				
 				if(getExpo()->value.equalsI(0L)){//0^0 indeterminate form
@@ -1418,38 +1427,41 @@ namespace microCas{
 					return;
 				}
 			}
-			if(getBase()->exprType == NUM && getBase()->value.plain() && getExpo()->exprType == SUM){//2^(x+3) -> 8*2^x && 2^(x-3) -> 2^x*inv(8)
-				Num n;
-				Expr *sm = getExpo();
-				bool found = false;
-				for(int i = 0;i<sm->numOfContExpr;i++){
-					if(sm->contExpr[i]->exprType == NUM && sm->contExpr[i]->value.plain()){
-						n.setValue(&sm->contExpr[i]->value);
-						sm->removeElement(i);
-						found = true;
-						break;
+			
+			if(sepPow){
+				if(getBase()->exprType == NUM && getBase()->value.plain() && getExpo()->exprType == SUM){//2^(x+3) -> 8*2^x && 2^(x-3) -> 2^x*inv(8)
+					Num n;
+					Expr *sm = getExpo();
+					bool found = false;
+					for(int i = 0;i<sm->numOfContExpr;i++){
+						if(sm->contExpr[i]->exprType == NUM && sm->contExpr[i]->value.plain()){
+							n.setValue(&sm->contExpr[i]->value);
+							sm->removeElement(i);
+							found = true;
+							break;
+						}
 					}
-				}
-				if(found){
-					if(!n.neg()){
-						Num bs(&getBase()->value);
-						bs.powN(&n);
-						Expr *pr = prodC(copy(),new Expr(&bs));
-						
-						clearElements();
-						become(pr);
-					}else{
-						n.absN();
-						
-						Num bs(&getBase()->value);
-						bs.powN(&n);
-						Expr *pr = prodC(copy(),invC(new Expr(&bs)));
-						
-						clearElements();
-						become(pr);
+					if(found){
+						if(!n.neg()){
+							Num bs(&getBase()->value);
+							bs.powN(&n);
+							Expr *pr = prodC(copy(),new Expr(&bs));
+							
+							clearElements();
+							become(pr);
+						}else{
+							n.absN();
+							
+							Num bs(&getBase()->value);
+							bs.powN(&n);
+							Expr *pr = prodC(copy(),invC(new Expr(&bs)));
+							
+							clearElements();
+							become(pr);
+						}
+						simplify();
+						return;
 					}
-					simplify();
-					return;
 				}
 			}
 			
@@ -1617,6 +1629,7 @@ namespace microCas{
 	
 	void Expr::factor(){
 		if(exprType == SUM){
+			simplify();
 			//printf("factoring\n");
 			//println();
 			{//move leading hash to front
@@ -1640,6 +1653,7 @@ namespace microCas{
 							max = v;
 						}
 					}else if(contExpr[i]->exprType == NUM){
+						
 						Expr *cpy = contExpr[i]->copy();
 						cpy->value.absN();
 						cpy->value.convertToFloat();
@@ -1649,12 +1663,15 @@ namespace microCas{
 							indexOfLeader = i;
 						}
 						delete cpy;
+						
 					}else{
+						
 						double v = contExpr[i]->hash();
 						if(v>max){
 							max = v;
 							indexOfLeader = i;
 						}
+						
 					}
 				}
 				Expr *ogFirst = contExpr[0];
@@ -2100,7 +2117,7 @@ namespace microCas{
 						Expr *toBe = prodC(current,new Expr(&sm));
 						contExpr[i] = toBe;
 						contExpr[i]->simple = false;
-						contExpr[i]->prodSimp();
+						contExpr[i]->prodSimp(true);
 					}else{
 						delete current;
 					}
@@ -2234,7 +2251,7 @@ namespace microCas{
 		}
 	}
 	
-	void Expr::prodSimp(){
+	void Expr::prodSimp(bool sepPow){
 		if(exprType == PROD){
 		
 			if(constant()){
@@ -2324,7 +2341,7 @@ namespace microCas{
 				}
 			}
 			
-			{//4^(3*x) -> 64^x this step prepares for next step then reversed
+			if(sepPow){//4^(3*x) -> 64^x this step prepares for next step then reversed
 				for(int i = 0;i<numOfContExpr;i++){
 					if(contExpr[i]->exprType == POW){
 						Expr *pw = contExpr[i];
@@ -2346,7 +2363,19 @@ namespace microCas{
 					}
 				}
 			}
-			
+			if(!sepPow){//4->2^2
+				for(int i = 0;i<numOfContExpr;i++){
+					if(contExpr[i]->exprType == NUM && contExpr[i]->value.rep == INT){//ln(4*2^x) -> (x+2)*ln(2)
+						long int b,e;
+						perfectPower(contExpr[i]->value.valueI,&b,&e);
+						
+						if(e != 1){
+							delete contExpr[i];
+							contExpr[i] = powC(numC(b),numC(e));
+						}
+					}
+				}
+			}
 			bool absInProd = false;
 			{//check if there are absolute values becuase next step may need to be done twice
 				for(int i = 0;i<numOfContExpr;i++){
@@ -2366,7 +2395,7 @@ namespace microCas{
 			if(absInProd) cycles++;
 			for(int c = 0;c<cycles;c++){//x*x^2*x^a*5*y -> x^(3+a)*5*y && 5^x*3^x -> 15^x
 				for(int i = 0;i<numOfContExpr;i++){
-					if(contExpr[i]->exprType == NUM && contExpr[i]->value.plain()) continue;
+					if(sepPow) if(contExpr[i]->exprType == NUM && contExpr[i]->value.plain()) continue;
 					bool replace = false;
 					Expr *current;
 					
@@ -2378,10 +2407,10 @@ namespace microCas{
 					}
 					Expr *expoSum = new Expr(SUM);
 					expoSum->addElement(current->getExpo());
-					bool baseIsNum = current->getBase()->exprType == NUM && current->getBase()->value.plain();
+					bool baseIsNum = sepPow && (current->getBase()->exprType == NUM && current->getBase()->value.plain());
 					
 					for(int j = i+1;j < numOfContExpr;j++){
-						if(contExpr[j]->exprType == NUM && contExpr[j]->value.plain()) continue;
+						if(sepPow) if(contExpr[j]->exprType == NUM && contExpr[j]->value.plain()) continue;
 						Expr *comp = contExpr[j];
 						if(comp->exprType == POW){
 							if(baseIsNum){
@@ -2410,9 +2439,10 @@ namespace microCas{
 					if(replace){
 						delete contExpr[i];
 						current->setExpo(expoSum);
+						expoSum->simplify();
 						contExpr[i] = current;
 						contExpr[i]->simple = false;
-						contExpr[i]->simplify();
+						contExpr[i]->powSimp(sepPow);
 					}else{
 						delete current;
 						expoSum->nullify();
@@ -2422,11 +2452,11 @@ namespace microCas{
 				}
 			}
 			
-			for(int i = 0;i<numOfContExpr;i++){//bring back
+			for(int i = 0;i<numOfContExpr;i++){//bring back 64^x -> 2^(6*x)
 				if(contExpr[i]->exprType == POW){
 					if(contExpr[i]->getBase()->exprType == NUM && contExpr[i]->getBase()->value.rep == INT){
 						contExpr[i]->simple = false;
-						contExpr[i]->simplify();
+						contExpr[i]->powSimp(sepPow);
 					}
 				}
 			}
@@ -2548,6 +2578,12 @@ namespace microCas{
 			contExpr[0]->direction = MIDDLE;
 			
 			contExpr[0]->factor();
+			
+			if(contExpr[0]->exprType == PROD){
+				
+				contExpr[0]->prodSimp(false);
+			}
+			
 			if(contExpr[0]->exprType == EQU){//log of equation , log of both sides
 				becomeInternal(contExpr[0]);
 				contExpr[0] = logC(contExpr[0]);
@@ -2594,7 +2630,100 @@ namespace microCas{
 			
 			}
 			
-			{//need factoring common exponents
+			if(contExpr[0]->exprType == PROD){//remove denominator in exponents ex: ln(4^(x/y)*z) -> ln(4^x*z^y)/y
+				Expr *prodOfDen = new Expr(PROD);
+				Expr *pr = contExpr[0];
+				for(int i = 0;i<pr->numOfContExpr;i++){
+					if(pr->contExpr[i]->exprType == POW){
+						if(pr->contExpr[i]->getExpo()->exprType == PROD){
+							Expr *innerProd = pr->contExpr[i]->getExpo();
+							for(int j = 0;j<innerProd->numOfContExpr;j++){
+								if(innerProd->contExpr[j]->exprType == POW){
+								
+									if(innerProd->contExpr[j]->expoIsMinusOne()){
+										prodOfDen->addElement(innerProd->contExpr[j]->getBase()->copy());
+									}
+								}
+							}
+						}else if(pr->contExpr[i]->getExpo()->exprType == POW){
+							if(pr->contExpr[i]->getExpo()->expoIsMinusOne()){
+								
+								prodOfDen->addElement(pr->contExpr[i]->getExpo()->getBase()->copy());
+							}
+						}
+					}
+				}
+				
+				if(prodOfDen->numOfContExpr > 0){
+					contExpr[0] = powC(contExpr[0],prodOfDen);
+					
+					Expr *repl = prodC(copy(),invC(prodOfDen->copy()));
+					contExpr[0]->powSimp(false);
+					
+					clearElements();
+					become(repl);
+					simplify();
+					return;
+				}else{
+					delete prodOfDen;
+				}
+			}
+			
+			if(contExpr[0]->exprType == PROD){//need factoring common exponents ex: ln(a^x*b^x) -> x*ln(a*b)
+				Expr *pr = contExpr[0];
+				for(int i = 0;i< pr->numOfContExpr;i++) if(pr->contExpr[i]->exprType == POW) pr->contExpr[i]->getExpo()->factor();
+				if(pr->contExpr[0]->exprType == POW){
+					Expr *list = pr->contExpr[0]->getExpo()->copy();
+					if(list->exprType != PROD) list = new Expr(PROD,list);
+					for(int i = 0;i<list->numOfContExpr;i++){
+						bool allHaveIt = true;
+						
+						for(int j = 1;j<pr->numOfContExpr;j++){
+							if(pr->contExpr[j]->exprType == NUM && pr->contExpr[j]->value.rep == INT){
+								long int b,e;
+								perfectPower(pr->contExpr[j]->value.valueI,&b,&e);
+								if(e!=1){
+									delete pr->contExpr[j];
+									pr->contExpr[j] = powC(numC(b),numC(e));
+								}
+							}
+							if(pr->contExpr[j]->exprType == POW){
+								if(pr->contExpr[j]->getExpo()->equalStruct(list->contExpr[i])){
+									continue;	
+								}else if(pr->contExpr[j]->getExpo()->exprType == PROD){
+									Expr *pwpr = pr->contExpr[j]->getExpo();
+									for(int k = 0;k<pwpr->numOfContExpr;k++){
+										if(pwpr->contExpr[k]->equalStruct(list->contExpr[i])) continue;
+									}
+								}
+								allHaveIt = false;
+							}else{
+								allHaveIt = false;
+							}
+						}
+						if(!allHaveIt){
+							list->removeElement(i);
+							i--;
+						}
+						
+					}
+					
+					if(list->numOfContExpr > 0){
+						contExpr[0] = powC(contExpr[0],invC(list));
+						Expr *repl = prodC(list->copy(),copy());
+						clearElements();
+						become(repl);
+						simplify();
+						return;
+					}else{
+						for(int i = 0;i<pr->numOfContExpr;i++){
+							if(pr->contExpr[i]->constant() && pr->contExpr[i]->exprType == POW){
+								pr->contExpr[i]->simplify();
+							}
+						}
+						delete list;
+					}
+				}
 			}
 			
 			if(contExpr[0]->exprType == POW){//log(e^x) -> x && log(a^b) -> b*log(a)
@@ -3703,6 +3832,7 @@ namespace microCas{
 	
 	void Expr::simplify(bool addFractions){
 		if(simple) return;
+		//println();
 		if(exprType == SUBST){
 			if(contExpr[1]->exprType == EQU){
 				replace(contExpr[1]->contExpr[0],contExpr[1]->contExpr[1]);
@@ -3723,10 +3853,10 @@ namespace microCas{
 		
 		for(int i = 0;i<numOfContExpr;i++) contExpr[i]->simplify();
 		
-		if(exprType == POW) powSimp();
+		if(exprType == POW) powSimp(true);
 		else if(exprType == DERI) derivSimp();
 		else if(exprType == SUM) sumSimp(addFractions);
-		else if(exprType == PROD) prodSimp();
+		else if(exprType == PROD) prodSimp(true);
 		else if(exprType == LOG) logSimp();
 		else if(exprType == SOLVE) solverSimp();
 		else if(exprType == ABS) absSimp();
@@ -4349,6 +4479,7 @@ void toolSelect(){
 		}
 	}
 }
+
 
 int main(){
 	toolSelect();
