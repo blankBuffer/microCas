@@ -13,7 +13,7 @@ to show that all of highschools math can be decribed in ONE file
 
 */
 
-const bool ERRORS = false;// errors shows illegal memory accesses and memory leaks
+const bool ERRORS = true;// errors shows illegal memory accesses and memory leaks
 
 #pragma pack(push, 1)
 namespace microCas{
@@ -390,9 +390,13 @@ namespace microCas{
 					if(pw->getBase()->exprType == NUM && pw->getExpo()->exprType == NUM){
 						if(pw->expoIsMinusOne()){
 							if(pw->getBase()->value.equalsI(2L)){
-								printf("sqrt(");
-								if(getBase()) getBase()->print();
-								printf(")");
+								if(getBase()->exprType == NUM && getBase()->value.equalsI(-1)){
+									printf("𝕚");
+								}else{
+									printf("sqrt(");
+									if(getBase()) getBase()->print();
+									printf(")");
+								}
 								special = true;
 							}else if(pw->getBase()->value.equalsI(3L)){
 								printf("cbrt(");
@@ -1632,6 +1636,9 @@ namespace microCas{
 			simplify();
 			//printf("factoring\n");
 			//println();
+			
+			
+			
 			{//move leading hash to front
 				double max = 0.0;
 				int indexOfLeader;
@@ -2407,14 +2414,14 @@ namespace microCas{
 					}
 					Expr *expoSum = new Expr(SUM);
 					expoSum->addElement(current->getExpo());
-					bool baseIsNum = sepPow && (current->getBase()->exprType == NUM && current->getBase()->value.plain());
+					bool baseIsNum = sepPow && (current->getBase()->exprType == NUM && current->getBase()->value.plain() && !current->getBase()->value.neg());
 					
 					for(int j = i+1;j < numOfContExpr;j++){
 						if(sepPow) if(contExpr[j]->exprType == NUM && contExpr[j]->value.plain()) continue;
 						Expr *comp = contExpr[j];
 						if(comp->exprType == POW){
 							if(baseIsNum){
-								if(comp->getBase()->exprType == NUM && comp->getExpo()->equalStruct(current->getExpo()) && comp->getBase()->value.plain()){
+								if(comp->getBase()->exprType == NUM && comp->getExpo()->equalStruct(current->getExpo()) && comp->getBase()->value.plain() && !comp->getBase()->value.neg()){
 									contExpr[i]->getBase()->value.multN(&comp->getBase()->value);
 									removeElement(j);
 									j--;
@@ -2579,7 +2586,7 @@ namespace microCas{
 			
 			contExpr[0]->factor();
 			
-			if(contExpr[0]->exprType == PROD){
+			if(contExpr[0]->exprType == PROD){//need to combine as much as possible
 				
 				contExpr[0]->prodSimp(false);
 			}
@@ -2639,16 +2646,17 @@ namespace microCas{
 							Expr *innerProd = pr->contExpr[i]->getExpo();
 							for(int j = 0;j<innerProd->numOfContExpr;j++){
 								if(innerProd->contExpr[j]->exprType == POW){
-								
-									if(innerProd->contExpr[j]->expoIsMinusOne()){
-										prodOfDen->addElement(innerProd->contExpr[j]->getBase()->copy());
+									Expr *pw = innerProd->contExpr[j];
+									if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.neg()){
+										prodOfDen->addElement(powC(pw->getBase()->copy(),numC(-pw->getExpo()->value.valueI)));
 									}
 								}
 							}
 						}else if(pr->contExpr[i]->getExpo()->exprType == POW){
-							if(pr->contExpr[i]->getExpo()->expoIsMinusOne()){
+							Expr *pw = pr->contExpr[i]->getExpo();
+							if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.neg()){
 								
-								prodOfDen->addElement(pr->contExpr[i]->getExpo()->getBase()->copy());
+								prodOfDen->addElement(powC(pw->getBase()->copy(),numC(-pw->getExpo()->value.valueI)));
 							}
 						}
 					}
@@ -2727,19 +2735,10 @@ namespace microCas{
 			}
 			
 			if(contExpr[0]->exprType == POW){//log(e^x) -> x && log(a^b) -> b*log(a)
-				if(contExpr[0]->getBase()->exprType == NUM){
-					if(contExpr[0]->getBase()->value.rep == EV){
-						becomeInternal(contExpr[0]->getExpo());
-						return;
-					}
-				}
-				Expr *b = contExpr[0]->getExpo();
-				contExpr[0]->contExpr[1] = nullptr;
-				contExpr[0]->removeElement(1);
-				contExpr[0]->exprType = LOG;
-				exprType = PROD;
-				addElement(b);
-				simple = false;
+				Expr *repl = prodC(contExpr[0]->getExpo()->copy(),logC(powC(contExpr[0]->copy(),invC(contExpr[0]->getExpo()->copy()))));
+				
+				clearElements();
+				become(repl);
 				simplify();
 				return;
 			}
@@ -3832,7 +3831,6 @@ namespace microCas{
 	
 	void Expr::simplify(bool addFractions){
 		if(simple) return;
-		//println();
 		if(exprType == SUBST){
 			if(contExpr[1]->exprType == EQU){
 				replace(contExpr[1]->contExpr[0],contExpr[1]->contExpr[1]);
@@ -3952,6 +3950,7 @@ namespace microCas{
 				printf("	F : factor last element on stack\n");
 				printf("	D : distribute last element on stack\n");
 				printf("	L : take the limit of expression\n");
+				printf("	1 : add imaginary constant to stack\n");
 			}
 			else if(op == 's'){
 				printStack(false);
@@ -4034,7 +4033,7 @@ namespace microCas{
 				printf("-type in name\n");
 				char name[maxNameLength];
 				scanf("%s",name);
-				bool startsWithNum = (name[0] > 47 && name[0] < 58) || (name[0] == 46);
+				bool startsWithNum = (name[0] > 47 && name[0] < 58) || (name[0] == '.') || (name[0] == '-');
 				if(startsWithNum){
 					printf("-variable name can't start with number\n");
 				}else if(name[0] == 'e' && name[1] == '\0'){
@@ -4261,6 +4260,10 @@ namespace microCas{
 			}else if(op == 'L'){
 				
 			
+			}else if(op == '1'){
+				stack[height] = powC(numC(-1L),invC(numC(2L)));
+				height++;
+				printStack();
 			}
 		}
 		
