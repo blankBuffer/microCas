@@ -13,7 +13,7 @@ to show that all of highschools math can be decribed in ONE file
 
 */
 
-const bool ERRORS = true;// errors shows illegal memory accesses and memory leaks also show important debug info
+const bool ERRORS = false;// errors shows illegal memory accesses and memory leaks also show important debug info
 
 #pragma pack(push, 1)
 namespace microCas{
@@ -488,17 +488,34 @@ namespace microCas{
 			}else if(exprType == POW){
 				bool special = false;
 				if(expoIsMinusOne()){
-					bool peren = false;
-					if(getBase()->exprType == SUM || getBase()->exprType == PROD || getBase()->exprType == POW)  peren = true;
-					printf("1/");
-					if(peren) printf("(");
-					if(getBase()) getBase()->print();
-					if(peren) printf(")");
-					special = true;
+					if(getBase()->exprType == SIN){
+						printf("csc(");
+						getBase()->contExpr[0]->print();
+						printf(")");
+						special = true;
+					}else if(getBase()->exprType == COS){
+						printf("sec(");
+						getBase()->contExpr[0]->print();
+						printf(")");
+						special = true;
+					}else if(getBase()->exprType == TAN){
+						printf("cot(");
+						getBase()->contExpr[0]->print();
+						printf(")");
+						special = true;
+					}else{
+						bool peren = false;
+						if(getBase()->exprType == SUM || getBase()->exprType == PROD || getBase()->exprType == POW)  peren = true;
+						printf("1/");
+						if(peren) printf("(");
+						if(getBase()) getBase()->print();
+						if(peren) printf(")");
+						special = true;
+					}
 				}
 				if(!special && getExpo()->exprType == POW){
 					Expr *pw = getExpo();
-					if(pw->getBase()->exprType == NUM && pw->getExpo()->exprType == NUM){
+					if(pw->getBase()->exprType == NUM){
 						if(pw->expoIsMinusOne()){
 							if(pw->getBase()->value.equalsI(2L)){
 								if(getBase()->exprType == NUM && getBase()->value.equalsI(-1)){
@@ -942,6 +959,7 @@ namespace microCas{
 		
 		void distr();
 		void factor();
+		void partFrac(Expr *var);
 		
 		//simplify algarithms
 		void simplify();
@@ -3442,6 +3460,10 @@ namespace microCas{
 	}
 	void Expr::sinSimp(){
 		if(exprType == SIN){
+			if(contExpr[0]->exprType == ASIN){
+				becomeInternal(contExpr[0]->contExpr[0]);
+				return;
+			}
 			contExpr[0]->factor();
 			if(contExpr[0]->exprType == PROD){//sin(-x)-> -sin(x)
 				Expr *pr = contExpr[0];
@@ -3565,7 +3587,10 @@ namespace microCas{
 	}
 	void Expr::cosSimp(){
 		if(exprType == COS){
-		
+			if(contExpr[0]->exprType == ACOS){
+				becomeInternal(contExpr[0]->contExpr[0]);
+				return;
+			}
 			if(contExpr[0]->exprType == ABS){//cos(|x|) -> cos(x)
 				contExpr[0]->becomeInternal(contExpr[0]->contExpr[0]);
 			}
@@ -3715,6 +3740,7 @@ namespace microCas{
 			}
 		}
 	}
+	
 	short exprSign(Expr *ex){//returns 1 if statement is negative 0 if positive and 2 if unknown. Note variables are asumed to be positive
 		if(ex->exprType == NUM){
 			return (short)ex->value.neg();
@@ -3862,9 +3888,58 @@ namespace microCas{
 		return nullptr;
 	}
 	
+	void Expr::partFrac(Expr *var){//polynomial division and partial fraction decomp
+		int deg = 0;
+		if(exprType == PROD){
+			for(int i = 0;i<numOfContExpr;i++){
+				if(contExpr[i]->exprType == SUM){
+					Expr *polyRep = polyExtract(contExpr[i],var);
+					deg+=polyRep->numOfContExpr-1;
+					delete polyRep;
+				}else if(contExpr[i]->exprType == POW){
+					Expr *pw = contExpr[i];
+					if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT){
+						Expr *ex = pw->getBase();
+						if(ex->equalStruct(var)){
+							deg+=pw->getExpo()->value.valueI;
+						}else if(ex->exprType == SUM){
+							Expr *polyRep = polyExtract(ex,var);
+							deg+=(polyRep->numOfContExpr-1)*pw->getExpo()->value.valueI;
+							
+							delete polyRep;
+						}
+					}
+				}else if(contExpr[i]->equalStruct(var)){
+					deg++;
+				}
+			}
+		}else if(exprType == POW){
+			Expr *pw = this;
+			if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT){
+				Expr *ex = pw->getBase();
+				if(ex->equalStruct(var)){
+					deg+=pw->getExpo()->value.valueI;
+				}else if(ex->exprType == SUM){
+					Expr *polyRep = polyExtract(ex,var);
+					deg+=(polyRep->numOfContExpr-1)*pw->getExpo()->value.valueI;
+					delete polyRep;
+				}
+			}
+		}else return;
+		
+		if(deg >= 0){//polynomial division required
+			printf("need polynomial division\n");
+			Expr *num = new Expr(PROD);
+			
+				
+		}
+		printf("deg:%d\n",deg);
+	}
+	
 	void Expr::integSimp(){
 		if(exprType == INTEG){
-			println();
+			//println();
+			
 			if(contExpr[0]->exprType == DERI){//Int(d(x)) -> x
 				becomeInternal(contExpr[0]->contExpr[0]);
 				return;
@@ -3942,7 +4017,6 @@ namespace microCas{
 									Expr *sm = pw->getBase();
 									Expr *cf = polyExtract(sm,var);
 									if(cf->numOfContExpr == 3 && cf->constant()){
-										cf->println();
 										Expr *repl;
 										
 										Expr *a = cf->contExpr[2];
@@ -3976,7 +4050,7 @@ namespace microCas{
 											common->contExpr[2] = prodC(numC(-1L),common->contExpr[2]);
 											
 											repl->addElement(common);
-											repl = prodC(logC(absC(repl)),powC(inner->copy(),invC(numC(-2L))));
+											repl = prodC(logC(repl),powC(inner->copy(),invC(numC(-2L))));
 										}
 										clearElements();
 										become(repl);
@@ -4115,6 +4189,15 @@ namespace microCas{
 								simple = true;
 								return;
 							}
+						}else if(otherPart->exprType == TAN){//integral of arctan
+							if(otherPart->contExpr[0]->equalStruct(var)){
+								Expr *repl =  prodC(numC(-1L),logC(cosC(var->copy())));
+								
+								clearElements();
+								become(repl);
+								simple = true;
+								return;
+							}
 						}
 						
 						
@@ -4234,8 +4317,12 @@ namespace microCas{
 							}
 							
 							inner = mostComplicated->contExpr[indexOfHighestDepth2];
-							if(inner->exprType == SIN || inner->exprType == COS || inner->exprType == TAN){//u should not be a trig function as it makes things more complicated
-								inner = inner->contExpr[0];
+							if(mostComplicated->exprType == POW){
+								if(mostComplicated->getExpo()->exprType == NUM && mostComplicated->getExpo()->value.neg()){
+									if(inner->exprType == SIN || inner->exprType == COS || inner->exprType == TAN){//u should not be a trig function if in the denominator as it makes things more complicated
+										if(!inner->contExpr[0]->equalStruct(var)) inner = inner->contExpr[0];
+									}
+								}
 							}
 						}else{
 							inner = mostComplicated;
@@ -4389,9 +4476,10 @@ namespace microCas{
 				
 				if(var){//IBP  integral((polynomial)*(otherPart)) -> polynomial*integral(otherPart)-integral(d(polynomial)*integral(otherPart))	
 					int indexOfEasy = -1;
+					int priority = 1;
 					for(int i = 0;i<pr->numOfContExpr;i++){
 						if(pr->contExpr[i]->equalStruct(var)){
-							indexOfEasy = i;
+							if(priority == 1) indexOfEasy = i;
 						
 						}else if(pr->contExpr[i]->exprType == SUM){//no sums should exist
 							indexOfEasy = -1;
@@ -4399,39 +4487,23 @@ namespace microCas{
 						}else if((pr->contExpr[i]->exprType == LOG || pr->contExpr[i]->exprType == ATAN || pr->contExpr[i]->exprType == ASIN || pr->contExpr[i]->exprType == ACOS) && pr->contExpr[i]->contExpr[0]->equalStruct(var)){
 							
 							indexOfEasy = i;
-							break;//logs and inv trig are best option
+							priority = 2;
 							
 						}else if(pr->contExpr[i]->exprType == POW){
 							Expr *pw = pr->contExpr[i];
-							if(pw->getBase()->equalStruct(var)){
-								if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI>0){
-									if(pw->getBase()->equalStruct(var)){
-										indexOfEasy = i;
-									}else if(pw->getBase()->exprType == LOG){
-										indexOfEasy = i;
-										break;//logs are best option
-									}
-								}else if(pw->getExpo()->exprType == PROD && pw->getExpo()->constant()){
-									
-									Expr *prExpo = pw->getExpo();
-									bool neg = false;
-									for(int j = 0;j<prExpo->numOfContExpr;j++){
-										if(prExpo->contExpr[j]->exprType == NUM){
-											if(prExpo->contExpr[j]->value.neg()){
-												   neg = true;
-												   break;
-											}
-										}
-									}
-									if(!neg) indexOfEasy = i;
-									
-								}else if(pw->getExpo()->exprType == POW && pw->getExpo()->constant()){
-									Expr *expoPw = pw->getExpo();
-									if(expoPw->expoIsMinusOne() && expoPw->getBase()->exprType == NUM && !expoPw->getBase()->value.neg()){
-										indexOfEasy = i;
-									}
+							if(pw->expoIsMinusOne()){
+								indexOfEasy = -1;
+								break;
+							}
+							if(exprSign(pw->getExpo()) != 1 && pw->getExpo()->constant() && pw->getBase()->equalStruct(var)){//fractional power like x^(1/2) should be diffrenciated only if it is positive
+									if(priority == 1) indexOfEasy = i;
+							}else if(pw->getExpo()->exprType == NUM && pw->getExpo()->value.rep == INT && pw->getExpo()->value.valueI>0){//x^2 or ln(x)^2
+								if(pw->getBase()->exprType == LOG || pw->getBase()->exprType == ATAN || pw->getBase()->exprType == ACOS || pw->getBase()->exprType == ASIN){
+									indexOfEasy = i;
+									priority = 2;
 								}
 							}
+							
 						}
 					}
 					
@@ -4651,15 +4723,14 @@ namespace microCas{
 					long int start,end;
 					start = clock();
 					//
-					Expr *v = varC("x");
-					Expr *l = polyExtract(stack[height-1],v);
-					if(l) l->println();
-					delete l;
-					delete v;
-					//
-					short sig = exprSign(stack[height-1]);
-					if(sig == 1) printf("neg\n");
-					else if(sig == 0) printf("pos\n");
+					/*
+					Expr *x = varC("x");
+					Expr *cpy = stack[height-1]->copy();
+					cpy->partFrac(x);
+					cpy->println();
+					delete cpy;
+					delete x;
+					*/
 					//
 					stack[height-1]->simplify();
 					
